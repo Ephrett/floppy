@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.3 — 2026-09-08
+Found during a full QA pass on macOS with the frozen app:
+- Revealed key stayed on "loading…" because the periodic refresh redrew the overlay; the key now stays displayed until hidden.
+- "Download the rescue file" did nothing in the native window (WKWebView cannot download page-generated files): the app now writes the
+  rescue file itself into Downloads with owner-only permissions and reveals it in Finder / Explorer.
+- The backup overlay could be dismissed by clicking the background and the worker could start without a confirmed backup: the overlay
+  is no longer dismissible until confirmed, and `/api/play` refuses to start until the backup is confirmed.
+- Dashboard counted zero deliveries for tier A/B machines: the engine's "check:ok" suffix broke the log parser.
+- Autostart toggles now reflect the real state (LaunchAgent / Run key) and the dashboard switch really toggles.
+- Default machine name is neutral (mac-xxxx / pc-xxxx) instead of the hostname, which often contains the user's name and is published.
+- Native alerts replaced by in-app toasts; wizard footer no longer overlaps content on small windows; remaining French strings translated.
+
 ## 1.0.1 — 2026-09-08
 - Model download now goes through the Ollama server API; the `ollama` command is no longer required in the app's PATH. Fixes
   "No such file or directory: 'ollama'" when the app is launched from the Finder with an existing Ollama (Homebrew or Ollama.app).

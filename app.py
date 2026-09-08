@@ -13,7 +13,7 @@ FROZEN = getattr(sys, "frozen", False)
 APP = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) if FROZEN else Path(__file__).resolve().parent
 ENGINE_SRC = APP / "engine" if (APP / "engine").exists() else APP.parent / "kit" / "worker-win"
 PROBE_SRC = (APP / "engine" / "probe.py") if (APP / "engine" / "probe.py").exists() else APP.parent / "kit" / "probe.py"
-VERSION = "1.0.1"
+VERSION = "1.0.3"
 
 
 def script_cmd(name: str, *args: str) -> list:
@@ -41,7 +41,7 @@ def decode_any(b: bytes) -> str:
 
 def load_state() -> dict:
     try: return json.loads((HOME / "app.json").read_text(encoding="utf-8"))
-    except Exception: return {"step": "machine", "machine_name": socket.gethostname().split(".")[0][:24], "probe": {}, "ollama": {}, "model": {}, "identity": {}, "worker": {}, "options": {}}
+    except Exception: return {"step": "machine", "machine_name": ("mac" if IS_MAC else "pc") + "-" + secrets.token_hex(2), "probe": {}, "ollama": {}, "model": {}, "identity": {}, "worker": {}, "options": {}}
 
 
 def save_state(st: dict) -> None:
@@ -389,7 +389,7 @@ def keepalive() -> None:
                 if now - TG["restart"] > 1800:
                     TG["restart"] = now; n = TG["restarts_today"]
                     tg_send(f"⚠️ <b>FLOPPY</b> : " + (f"le worker s'était arrêté, je l'ai relancé ({n} fois aujourd'hui)." if lang() == "fr" else f"the worker had stopped, I restarted it ({n} times today)."))
-            if now - last["machine"] > 30: BG["machine"] = machine_health(); last["machine"] = now
+            if now - last["machine"] > 30: BG["machine"] = machine_health(); BG["autostart"] = autostart_enabled(); last["machine"] = now
             if now - last["score"] > 900: refresh_score(); last["score"] = now
             tg_watch(now)
         except Exception: pass
@@ -422,7 +422,7 @@ def refresh_score() -> None:
     except Exception as ex: BG["score_error"] = str(ex)[:120]
 
 
-RESULT = re.compile(r"RESULT (k[0-9a-f]{10}) seq=\d+ \((\d+) caract\S*res, moteur ([a-z0-9.-]+)\)"); CLAIM = re.compile(r"CLAIM (k[0-9a-f]{10}) .*\| (.*)")
+RESULT = re.compile(r"RESULT (k[0-9a-f]{10}) seq=\d+ \((\d+) caract\S*res, moteur ([a-z0-9.-]+)(?: check:[a-z_]+)?\)"); CLAIM = re.compile(r"CLAIM (k[0-9a-f]{10}) .*\| (.*)")
 
 
 def stats() -> dict:
@@ -466,20 +466,29 @@ def launch_cmd(*args: str) -> list:
     return [sys.executable, *args] if FROZEN else [sys.executable, str(Path(__file__).resolve()), *args]
 
 
+def autostart_enabled() -> bool:
+    """État réel du démarrage automatique (LaunchAgent ou clé Run), lu toutes les 30 s par keepalive()."""
+    try:
+        if IS_MAC: return (Path.home() / "Library" / "LaunchAgents" / "com.floppy.app.plist").exists()
+        if IS_WIN: return "FLOPPY" in sh(["reg", "query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", "FLOPPY"], 10)
+    except Exception: pass
+    return False
+
+
 def autostart(enable: bool) -> str:
     cmd = launch_cmd("--play", "--hidden")
     if IS_MAC:
         p = Path.home() / "Library" / "LaunchAgents" / "com.floppy.app.plist"
-        if not enable: sh(["launchctl", "bootout", f"gui/{os.getuid()}/com.floppy.app"], 20); p.unlink(missing_ok=True); return "désactivé"
+        if not enable: sh(["launchctl", "bootout", f"gui/{os.getuid()}/com.floppy.app"], 20); p.unlink(missing_ok=True); return L("désactivé", "disabled")
         args = "".join(f"<string>{c}</string>" for c in cmd)
         p.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>com.floppy.app</string>\n<key>ProgramArguments</key><array>{args}</array>\n<key>EnvironmentVariables</key><dict><key>FLOPPY_HOME</key><string>{HOME}</string><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>\n<key>KeepAlive</key><true/><key>RunAtLoad</key><true/>\n<key>StandardOutPath</key><string>{HOME / 'app.out'}</string><key>StandardErrorPath</key><string>{HOME / 'app.out'}</string>\n</dict></plist>\n""")
-        sh(["launchctl", "bootout", f"gui/{os.getuid()}/com.floppy.app"], 20); sh(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(p)], 20); return "activé (à l'ouverture de session, en arrière-plan)"
+        sh(["launchctl", "bootout", f"gui/{os.getuid()}/com.floppy.app"], 20); sh(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(p)], 20); return L("activé (à l'ouverture de session, en arrière-plan)", "enabled (at login, in the background)")
     if IS_WIN:
         key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
-        if not enable: sh(["reg", "delete", key, "/v", "FLOPPY", "/f"], 20); return "désactivé"
+        if not enable: sh(["reg", "delete", key, "/v", "FLOPPY", "/f"], 20); return L("désactivé", "disabled")
         value = " ".join(f'"{c}"' for c in cmd); out = sh(["reg", "add", key, "/v", "FLOPPY", "/t", "REG_SZ", "/d", value, "/f"], 20)
-        return "activé (à l'ouverture de session, en arrière-plan)" if "réussi" in out or "success" in out.lower() or out == "" else "échec : " + out[:80]
-    return "non pris en charge sur ce système"
+        return L("activé (à l'ouverture de session, en arrière-plan)", "enabled (at login, in the background)") if "réussi" in out or "success" in out.lower() or out == "" else L("échec : ", "failed: ") + out[:80]
+    return L("non pris en charge sur ce système", "not supported on this system")
 
 
 # ------------------------------------------------------------------ HTTP
@@ -519,14 +528,14 @@ class H(BaseHTTPRequestHandler):
             elif self.path.startswith("/api/state"):
                 st = load_state(); st["worker"] = {"running": worker_alive(), "since": WORKER["since"], "wanted": WORKER["wanted"]}
                 st["ollama"] = {"installed": bool(ollama_bin()), "version": ollama_version()}; st["task"] = TASK; st["simulate"] = SIMULATE; st["tier_notes"] = TIER_NOTES; st["home"] = str(HOME); st["os"] = platform.system()
-                st["options"] = {k: v for k, v in st.get("options", {}).items() if k != "telegram_token"}; st["telegram_set"] = bool(tg_token()); c = tg_chat(); st["telegram"] = {"set": st["telegram_set"], "paired": c.get("name"), "bot": c.get("bot") or load_state().get("options", {}).get("telegram_bot")}; st["version"] = VERSION; st["frozen"] = FROZEN
+                st["options"] = {k: v for k, v in st.get("options", {}).items() if k != "telegram_token"}; st["telegram_set"] = bool(tg_token()); c = tg_chat(); st["telegram"] = {"set": st["telegram_set"], "paired": c.get("name"), "bot": c.get("bot") or load_state().get("options", {}).get("telegram_bot")}; st["version"] = VERSION; st["frozen"] = FROZEN; st["autostart"] = BG.get("autostart", False)
                 self.send(200, st)
             elif self.path.startswith("/api/stats"): self.send(200, stats())
             elif self.path.startswith("/api/seed-backup"):
                 # Révélation de la clé pour la SAUVEGARDE de l'utilisateur : uniquement depuis cette machine (127.0.0.1), jamais journalisée, jamais transmise.
                 if self.client_address[0] not in ("127.0.0.1", "::1"): self.send(403, {"error": "local only"}); return
                 sp = ENGINE / "seed.hex"
-                if not sp.exists(): self.send(404, {"error": "pas de clé"}); return
+                if not sp.exists(): self.send(404, {"error": L("pas de clé", "no key")}); return
                 self.send(200, {"seed_hex": sp.read_text().strip(), "did": load_state().get("identity", {}).get("did"), "path": str(sp)})
             elif self.path.startswith("/api/logs"):
                 log = STATE / "bot.log"; lines = decode_any(log.read_bytes()).splitlines()[-80:] if log.exists() else []
@@ -536,7 +545,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            if self.headers.get("X-Floppy") != "1": self.send(403, {"error": "en-tête X-Floppy requis"}); return
+            if self.headers.get("X-Floppy") != "1": self.send(403, {"error": "X-Floppy header required"}); return
             b = self.body(); p = self.path
             if p == "/api/scan": self.send(200, {"started": run_task("scan", task_scan)})
             elif p == "/api/install-ollama": self.send(200, {"started": run_task("ollama", task_install_ollama)})
@@ -566,11 +575,27 @@ class H(BaseHTTPRequestHandler):
                 try: tg_send(("🧪 Test FLOPPY · " if lang() == "fr" else "🧪 FLOPPY test · ") + time.strftime("%H:%M"), raise_error=True); self.send(200, {"ok": True})
                 except Exception as ex: self.send(200, {"ok": False, "error": str(ex)[:160]})
             elif p == "/api/telegram-unpair": tg_unpair(); self.send(200, {"ok": True})
+            elif p == "/api/rescue-file":
+                # Fichier de secours écrit PAR L'APP (la fenêtre native ne télécharge pas les fichiers générés côté page) : Téléchargements, 600, puis révélé dans le Finder/l'Explorateur.
+                if self.client_address[0] not in ("127.0.0.1", "::1"): self.send(403, {"error": "local only"}); return
+                sp = ENGINE / "seed.hex"
+                if not sp.exists(): self.send(404, {"error": L("pas encore de clé", "no key yet")}); return
+                did = load_state().get("identity", {}).get("did", "") or ""; seed = sp.read_text().strip()
+                dl = Path.home() / "Downloads"; dl = dl if dl.is_dir() else HOME; f = dl / f"FLOPPY-rescue-{did[-8:] or 'key'}.txt"
+                f.write_text(L(f"FLOPPY — fichier de secours de ton identité\nDID (public) : {did}\nCLÉ PRIVÉE (64 hex, SECRÈTE) : {seed}\n\nQui possède cette clé est toi. Garde ce fichier hors ligne : clé USB, gestionnaire de mots de passe ou papier. Jamais dans un chat, un e-mail ou un dossier cloud en clair.\nPour récupérer ton agent : FLOPPY → étape Identité → « Clé existante » → colle la clé privée.\n",
+                               f"FLOPPY — rescue file for your identity\nDID (public): {did}\nPRIVATE KEY (64 hex, SECRET): {seed}\n\nWhoever holds this key is you. Keep this file offline: USB stick, password manager or paper. Never in a chat, an email or a plain cloud folder.\nTo recover your agent: FLOPPY → Identity step → \"Existing key\" → paste the private key.\n"), encoding="utf-8")
+                try: os.chmod(f, 0o600)
+                except Exception: pass
+                try: subprocess.Popen(["open", "-R", str(f)] if IS_MAC else ["explorer", f"/select,{f}"] if IS_WIN else ["xdg-open", str(dl)])
+                except Exception: pass
+                self.send(200, {"path": str(f)})
             elif p == "/api/backup-done":
                 st = load_state(); st.setdefault("identity", {})["backup_confirmed"] = True; st["identity"]["backup_at"] = time.time(); save_state(st); self.send(200, {"ok": True})
-            elif p == "/api/play": start_worker(); self.send(200, {"running": worker_alive()})
+            elif p == "/api/play":
+                if not load_state().get("identity", {}).get("backup_confirmed"): self.send(409, {"error": L("Confirme d'abord la sauvegarde de ta clé (étape Identité).", "Confirm your key backup first (Identity step).")}); return
+                start_worker(); self.send(200, {"running": worker_alive()})
             elif p == "/api/pause": stop_worker(); self.send(200, {"running": worker_alive()})
-            elif p == "/api/autostart": self.send(200, {"result": autostart(bool(b.get("enable", True)))})
+            elif p == "/api/autostart": r = autostart(bool(b.get("enable", True))); BG["autostart"] = autostart_enabled(); self.send(200, {"result": r})
             elif p == "/api/model":
                 st = load_state(); name = re.sub(r"[^\w.:/-]", "", str(b.get("name", "")))[:60]
                 if name: st["model"] = {"name": name, "pulled": False}; save_state(st)
@@ -605,7 +630,7 @@ def main() -> None:
         threading.Thread(target=orphan_watch, daemon=True).start()
         sys.argv = [str(ENGINE / name)] + sys.argv[3:]; sys.path.insert(0, str(ENGINE)); os.chdir(ENGINE)
         runpy.run_path(str(ENGINE / name), run_name="__main__"); return
-    HOME.mkdir(parents=True, exist_ok=True); ensure_engine_files()
+    HOME.mkdir(parents=True, exist_ok=True); ensure_engine_files(); BG["autostart"] = autostart_enabled()
     threading.Thread(target=keepalive, daemon=True).start()
     if "--play" in sys.argv and load_state().get("step") == "ready" and (ENGINE / "seed.hex").exists():
         try: start_ollama_server()

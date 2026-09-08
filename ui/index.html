@@ -174,7 +174,7 @@ function stepIndex(){return STEPS.indexOf(S.step)}
 function cadenceBase(){const m=S.model||{},p=S.probe||{};return Math.min(600,Math.max(60,m.jobs_per_hour_measured?Math.round(m.jobs_per_hour_measured*.6):(p.jobs_per_hour_start||150)))}
 function cadenceMode(){const c=Number((S.options||{}).cadence||0),b=cadenceBase();if(!c)return 1;const r=c/b;return r<.62?0:r<.87?1:2}
 // ---- rendu
-async function refresh(){try{S=await(await fetch('/api/state')).json()}catch(e){renderOffline();return}LANG=(S.options||{}).lang||((navigator.language||'fr').toLowerCase().startsWith('en')?'en':'fr');if(S.step==='ready'&&view==='wizard')view='dash';render();}
+async function refresh(){try{S=await(await fetch('/api/state')).json()}catch(e){renderOffline();return}LANG=(S.options||{}).lang||((navigator.language||'fr').toLowerCase().startsWith('en')?'en':'fr');if(!(S.options||{}).lang&&!U.langPosted){U.langPosted=true;post('/api/options',{lang:LANG})}if(S.step==='ready'&&view==='wizard')view='dash';render();}
 function render(){const task=S.task||{},running=task.status==='running';const cur=stepIndex();
   let head,body;
   if(view==='settings'){head=hdr(t('settings'),'');body=settings()}

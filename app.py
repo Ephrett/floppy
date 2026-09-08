@@ -13,7 +13,7 @@ FROZEN = getattr(sys, "frozen", False)
 APP = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) if FROZEN else Path(__file__).resolve().parent
 ENGINE_SRC = APP / "engine" if (APP / "engine").exists() else APP.parent / "kit" / "worker-win"
 PROBE_SRC = (APP / "engine" / "probe.py") if (APP / "engine" / "probe.py").exists() else APP.parent / "kit" / "probe.py"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 
 def script_cmd(name: str, *args: str) -> list:
@@ -79,7 +79,8 @@ def ollama_version() -> str | None:
 
 def ollama_bin() -> str | None:
     cands = [str(HOME / "Ollama.app" / "Contents" / "Resources" / "ollama")] if IS_MAC else []
-    if not FORCE_INSTALL: cands += [shutil.which("ollama")] + (["/Applications/Ollama.app/Contents/Resources/ollama"] if IS_MAC else [str(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe")] if IS_WIN else [])
+    wide = os.environ.get("PATH", "") + os.pathsep + os.pathsep.join(["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", str(Path.home() / ".local" / "bin")])   # une app lancée par le Finder n'a qu'un PATH minimal
+    if not FORCE_INSTALL: cands += [shutil.which("ollama", path=wide)] + (["/Applications/Ollama.app/Contents/Resources/ollama", str(Path.home() / "Applications" / "Ollama.app" / "Contents" / "Resources" / "ollama")] if IS_MAC else [str(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"), str(Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Ollama" / "ollama.exe")] if IS_WIN else [])
     elif IS_WIN: cands += [str(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe")] if (HOME / "downloads" / "installed.flag").exists() else []
     for c in cands:
         if c and Path(c).exists(): return c
@@ -170,17 +171,43 @@ def task_install_ollama() -> None:
     st = load_state(); st["ollama"] = {"installed": True, "version": ollama_version()}; save_state(st)
 
 
+def api_pull(model: str) -> None:
+    """Télécharge le modèle par l'API du serveur Ollama qui répond (le sien ou le nôtre) : aucune dépendance au binaire dans le PATH."""
+    req = urllib.request.Request(f"{OLLAMA_URL}/api/pull", data=json.dumps({"model": model, "stream": True}).encode(), headers={"content-type": "application/json"})
+    last, ok = "", False
+    with urllib.request.urlopen(req, timeout=900) as r:
+        for raw in r:
+            try: d = json.loads(raw)
+            except Exception: continue
+            if d.get("error"): raise RuntimeError(d["error"])
+            status, tot, done = d.get("status", ""), d.get("total"), d.get("completed")
+            if tot and done: TASK["progress"] = min(90, int(done / tot * 90)); msg = f"{status} · {done * 100 // tot} %"
+            else: msg = status
+            pct = lambda m: (lambda mm: int(mm.group(1)) if mm else None)(re.search(r"(\d+) %$", m))
+            a, b = pct(msg), pct(last)
+            if msg and msg != last and (msg.split(" ·")[0] != last.split(" ·")[0] or a is None or b is None or a - b >= 5):   # journal : changement d'étape ou +5 %
+                last = msg; tlog(msg[:90])
+            if status == "success": ok = True
+    if not ok: raise RuntimeError(L("téléchargement du modèle incomplet", "model download incomplete"))
+
+
 def task_pull_model() -> None:
     st = load_state(); model = st.get("model", {}).get("name") or st.get("probe", {}).get("model") or "qwen3.5:4b"
-    b = ollama_bin() or "ollama"; tlog(L(f"téléchargement du modèle {model} (plusieurs Go, une seule fois)…", f"downloading model {model} (a few GB, once)…"))
-    penv = dict(os.environ, OLLAMA_HOST=f"127.0.0.1:{OLLAMA_PORT}", OLLAMA_MODELS=str(HOME / "models"))            # même serveur et même dossier de modèles que le nôtre
-    p = subprocess.Popen([b, "pull", model], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=penv, creationflags=(0x08000000 if IS_WIN else 0))
-    last = ""
-    for line in p.stdout:
-        m = re.search(r"(\d+)%", line)
-        if m: TASK["progress"] = min(90, int(m.group(1)) * 0.9)
-        if line.strip() and line.strip() != last: last = line.strip(); tlog(last[:90])
-    if p.wait() != 0: raise RuntimeError(L("ollama pull a échoué", "ollama pull failed"))
+    tlog(L(f"téléchargement du modèle {model} (plusieurs Go, une seule fois)…", f"downloading model {model} (a few GB, once)…"))
+    start_ollama_server()                                                                                          # le serveur qui répond (déjà présent ou le nôtre)
+    try: api_pull(model)
+    except Exception as ex:
+        b = ollama_bin()
+        if not b: raise
+        tlog(L(f"API indisponible ({str(ex)[:60]}), passage par la commande ollama", f"API unavailable ({str(ex)[:60]}), falling back to the ollama command"))
+        penv = dict(os.environ, OLLAMA_HOST=f"127.0.0.1:{OLLAMA_PORT}", OLLAMA_MODELS=str(HOME / "models"))            # même serveur et même dossier de modèles que le nôtre
+        pr = subprocess.Popen([b, "pull", model], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=penv, creationflags=(0x08000000 if IS_WIN else 0))
+        last = ""
+        for line in pr.stdout:
+            m = re.search(r"(\d+)%", line)
+            if m: TASK["progress"] = min(90, int(m.group(1)) * 0.9)
+            if line.strip() and line.strip() != last: last = line.strip(); tlog(last[:90])
+        if pr.wait() != 0: raise RuntimeError(L("ollama pull a échoué", "ollama pull failed"))
     tlog(L("mesure de la vitesse (30 s)…", "measuring speed (30 s)…")); toks, runs, t0 = 0, 0, time.time(); tok_s = 0.0
     while time.time() - t0 < 30:
         body = {"model": model, "prompt": "Explain in about 600 characters how TCP congestion control reacts to packet loss, answer first.", "stream": False, "think": False, "options": {"num_predict": 250, "temperature": 0.35}}

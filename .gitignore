@@ -1,0 +1,12 @@
+build/
+dist/
+build.log
+*.spec
+__pycache__/
+*.pyc
+.env
+state/
+*.hex
+*.bak*
+ui/index.*.html
+.DS_Store

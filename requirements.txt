@@ -1,0 +1,5 @@
+# Runtime (also bundled into the frozen app)
+pywebview>=6.0
+cryptography>=42
+# Build only
+pyinstaller>=6.10

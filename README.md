@@ -79,7 +79,7 @@ docs/             notes (mobile)
 ## Contributing
 
 Issues and pull requests are welcome: Linux support, translations, tests, engine log messages in English, a plugged-in-only mode for laptops.
-Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Never include a key, a token, a DID of a real user or a personal path in an issue.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Testers: [docs/TESTERS.md](docs/TESTERS.md). Never include a key, a token, a DID of a real user or a personal path in an issue.
 
 ## License
 

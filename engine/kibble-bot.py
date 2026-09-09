@@ -39,6 +39,10 @@ FARM = re.compile(r"#[0-9a-f]{4,}|Auto-Generated|\[AUTONOMOUS\]|\[DISTRIBUTED\]|
 UNFULFILLABLE = re.compile(r"\b(at \d+ ?ms|real-?time|deploy|simulat|monitor(?!ing tools)|scrape|crawl|index(ing|es)? all|embeddings? for all|compute embeddings|run (a|the) (scan|audit|simulation)"
                            r"|aggregat(e|ing) all|across all (active|rooms|nodes)|orderbook|generate .*(dataset|index)|train (a|the) model|benchmark suite)\b", re.I)
 JOB_RE = re.compile(r"^JOB v1 \| (k[0-9a-f]{10}) \| (explain|research|review|build|coordinate) \| (.+?) \| (.+)$", re.S)
+CLAIMS_SEEN: dict[str, tuple[int, str, float]] = {}     # jid -> (seq du 1er CLAIM vu, DID, horodatage)
+BACKFILL: dict[str, dict] = {}                          # jobs vus, faisables, jamais réclamés : repris quand le flux frais ne donne rien
+SHARD = os.environ.get("BOT_SHARD", "")             # « k/n » : ne réclamer que les jobs dont l'identifiant tombe dans la part k (plusieurs machines d'un même opérateur sans se disputer les jobs)
+BACKFILL_MIN_AGE = int(os.environ.get("BOT_BACKFILL_MIN_AGE_SEC", "120")); BACKFILL_IDLE = int(os.environ.get("BOT_BACKFILL_IDLE_SEC", "20"))
 THIN = re.compile(r"^(Auto-delivered by VPS agent|Completed work on .* successfully|Execution finalized on private node|Coordination completed\. Success criteria mapped|Completed per criteria: analyzed requirement|Task completed successfully|Job received and processed)", re.I)
 UNSAFE = re.compile(r"https?://|fetch |curl |download|run this|execute|install|private key|seed|wallet|transfer|send .* to", re.I)
 
@@ -87,11 +91,10 @@ def http(method: str, url: str, body: dict | None = None, timeout: int = 30) -> 
 
 def next_nonce() -> int:
     f = STATE / f"nonce-{ROOM}"
-    last = int((f.read_text(encoding="utf-8", errors="replace") or "0").strip() or 0) if f.exists() else 0
+    try: last = int((f.read_text(encoding="utf-8", errors="replace") or "0").strip() or 0) if f.exists() else 0
+    except ValueError: last = 0                                                          # fichier corrompu (coupure de courant : NUL) → repart de l'horloge
     n = max(int(time.time() * 1000), last + 1)
-    f.write_text(f"{n}\n", encoding="utf-8"); return n
-
-
+    tmp = f.with_suffix(".tmp"); tmp.write_text(f"{n}\n", encoding="utf-8"); os.replace(tmp, f); return n            # écriture atomique
 def say(text: str):
     """Poste une ligne signée ; renvoie (ok, enregistrement stocké ou message d'erreur)."""
     try: swept = sign.swept(text, sign.MAX_TEXT_CHARS)
@@ -290,6 +293,13 @@ def generate(cat: str, title: str, job_text: str, lane: str | None = None):
 
 def deliver(st: dict, jid: str, cat: str, title: str, job_text: str) -> None:
     with write_slots:
+        cs = st["claims"][jid].get("claim_seq") or 0
+        for _ in range(40):                                                     # attendre que le flux ait dépassé notre CLAIM
+            if st.get("since", 0) >= cs: break
+            time.sleep(0.5)
+        c = CLAIMS_SEEN.get(jid)
+        if c and c[1] != DID and c[0] < cs:                                     # quelqu'un avait réclamé avant : le tableau ignorerait notre RESULT, on ne génère pas
+            st["claims"][jid]["delivered"] = "lost"; save_state(st); log(f"CLAIM perdu {jid} : …{c[1][-8:]} avait réclamé avant (seq {c[0]} < {cs}), pas de génération"); return
         st["claims"][jid]["in_flight"] = True
         text, why = generate(cat, title, job_text, st["claims"][jid].get("engine"))
         if text is None:
@@ -417,7 +427,8 @@ def main() -> None:
     if st["since"] is None:
         code, body = http("GET", f"{BASE}/r/{ROOM}?limit=1&format=json"); st["since"] = json.loads(body)["last_seq"]
     _e = _load_env(); engine = _e.get("BOT_ENGINES", "ollama,gemini,claude") + f" (ollama={_e.get('OLLAMA_MODEL', 'gemma3:27b')}, gemini={_e.get('GEMINI_MODELS', '?')})"
-    log(f"bot démarré DID={DID} since={st['since']} max_claims/h={MAX_CLAIMS_PER_HOUR} gap={MIN_CLAIM_GAP}s moteur={engine}")
+    global SHARD; SHARD = SHARD or _load_env().get("BOT_SHARD", "")                 # .env du moteur (non exporté dans l'environnement)
+    log(f"bot démarré DID={DID} since={st['since']} max_claims/h={MAX_CLAIMS_PER_HOUR} gap={MIN_CLAIM_GAP}s moteur={engine} part={SHARD or '-'} reprise≥{BACKFILL_MIN_AGE}s")
     for c in st["claims"].values(): c["in_flight"] = False
     st["validating"] = False
     for jid, c in list(st["claims"].items()):  # reprise des réclamations non livrées (redémarrage)
@@ -438,23 +449,36 @@ def main() -> None:
         try: obj = json.loads(body)
         except Exception: time.sleep(2); continue
         msgs = obj.get("messages", [])
+        for m0 in msgs:                                                          # 1er CLAIM vu par job, toutes fenêtres confondues (course perdue = claim antérieur d'un autre)
+            p0 = m0.get("text", "").split("|")
+            if len(p0) >= 2 and p0[0].strip() == "CLAIM v1":
+                jid0 = p0[1].strip(); s0 = m0.get("seq") or 0
+                if jid0 not in CLAIMS_SEEN or s0 < CLAIMS_SEEN[jid0][0]: CLAIMS_SEEN[jid0] = (s0, m0.get("from", ""), time.time())
+                BACKFILL.pop(jid0, None)
+        if len(CLAIMS_SEEN) > 50000: [CLAIMS_SEEN.pop(k) for k, v in list(CLAIMS_SEEN.items()) if time.time() - v[2] > 21600]
+        if time.time() - st.get("last_claim_ts", 0) > BACKFILL_IDLE and BACKFILL:                    # flux frais muet : reprendre un job vu, faisable, jamais réclamé
+            cands = sorted((v for v in BACKFILL.values() if time.time() - v["ts"] >= BACKFILL_MIN_AGE and v["jid"] not in CLAIMS_SEEN and v["jid"] not in st["claims"]), key=lambda v: v["seq"])
+            for v in cands[:2]:
+                BACKFILL.pop(v["jid"], None); msgs.append({"text": f"JOB v1 | {v['jid']} | {v['cat']} | {v['title']} | {v['body']}", "from": v["from"], "seq": v["seq"], "_backfill": True})
+            [BACKFILL.pop(k) for k, v in list(BACKFILL.items()) if time.time() - v["ts"] > 21600]
         claimed_in_batch = {p[1].strip() for m in msgs if (p := m.get("text", "").split("|")) and p[0].strip() == "CLAIM v1" and len(p) >= 2}
         for m in msgs:
             t, frm = m.get("text", ""), m.get("from", "")
             jm = JOB_RE.match(t)
             if jm and frm != DID and frm not in own_dids():
                 jid, cat, title, jb = jm.groups()
-                jobs_seen[jid] = (frm, title, jb)
+                jobs_seen[jid] = (frm, title, jb); synth = bool(m.get("_backfill"))
+                if SHARD and re.fullmatch(r"\d+/\d+", SHARD) and int(jid[1:5], 16) % int(SHARD.split("/")[1]) != int(SHARD.split("/")[0]): continue   # job d'une autre part
                 try:
                     with (STATE / "jobs-seen.jsonl").open("a", encoding="utf-8") as f: f.write(json.dumps({"ts": time.time(), "seq": m.get("seq"), "job_id": jid, "from": frm, "cat": cat, "title": title[:200], "body": jb[:2000]}, ensure_ascii=False) + "\n")
                 except Exception: pass
                 now0 = time.time(); fam = re.sub(r"\s*\(agent \d+\)|\s*#\w+$|\d+", "", title.lower())[:60]
-                poster_hits.setdefault(frm, []).append(now0); poster_hits[frm] = [t for t in poster_hits[frm] if now0 - t < 3600]
-                family_hits.setdefault(fam, []).append(now0); family_hits[fam] = [t for t in family_hits[fam] if now0 - t < 3600]
-                tkey = (frm, " ".join(title.lower().split())); dup = tkey in title_seen; title_seen[tkey] = now0
+                if not synth: poster_hits.setdefault(frm, []).append(now0); poster_hits[frm] = [t for t in poster_hits[frm] if now0 - t < 3600]
+                if not synth: family_hits.setdefault(fam, []).append(now0); family_hits[fam] = [t for t in family_hits[fam] if now0 - t < 3600]
+                tkey = (frm, " ".join(title.lower().split())); dup = (tkey in title_seen) and not synth; title_seen[tkey] = now0
                 if len(title_seen) > 60000: [title_seen.pop(k) for k, t in list(title_seen.items()) if now0 - t > 86400]
                 reason = ("ferme" if FARM.search(title + " " + jb) else "irréalisable" if UNFULFILLABLE.search(title + " " + jb) else "trop court" if len(jb) < 40
-                          else "dangereux" if UNSAFE.search(jb) else "déjà pris" if jid in claimed_in_batch or jid in st["claims"] else "gabarit répété" if len(family_hits[fam]) > 10
+                          else "dangereux" if UNSAFE.search(jb) else "déjà pris" if jid in claimed_in_batch or jid in st["claims"] or jid in CLAIMS_SEEN else "gabarit répété" if len(family_hits[fam]) > 10
                           else "titre déjà posté" if dup else None)                       # le tableau ignore les jobs « duplicate_poster_title » : leur RESULT ne compte pas
                 if reason:                                                    # règles du tableau : trois parties, jobs faisables ; pas de plafond par posteur (retiré 6/9 14h40)
                     skipped[reason] = skipped.get(reason, 0) + 1
@@ -464,7 +488,9 @@ def main() -> None:
                 now = time.time()
                 for k in ("claim_times", "claim_times_claude"): st[k] = [x for x in st.get(k, []) if now - x < 3600]
                 cap, gap = _caps()                                            # plafond Gemma (.env), écart minimal global
-                if now - st.get("last_claim_ts", 0) < gap or now < QUOTA_PAUSE["until"]: continue
+                if now - st.get("last_claim_ts", 0) < gap or now < QUOTA_PAUSE["until"]:
+                    if not synth: BACKFILL[jid] = {"jid": jid, "seq": m["seq"], "from": frm, "cat": cat, "title": title, "body": jb, "ts": now}
+                    continue
                 envc = _load_env(); cmax = int(envc.get("CLAUDE_MAX_JOBS_PER_HOUR", "350"))
                 trivial = len(jb) < 140 or re.search(r"^(Which is larger|What is the ticker|List three steps|What is a common)", title, re.I)
                 # quota glissant par minute (2× la moyenne horaire) : autorise les rafales quand les jobs arrivent par paquets
@@ -483,7 +509,9 @@ def main() -> None:
                 else: lane = "ollama" if g_due else "claude" if c_due else None
                 if lane == "ollama" and c_due and cat in ("research", "review"): lane = "claude"        # mesuré 6/9 : not local 12-16 % sur research/review, Claude 3-7 %
                 elif lane == "claude" and g_due and cat in ("explain", "coordinate"): lane = "ollama"    # le local tient explain/coordinate (not 6-8 %)
-                if not lane: continue
+                if not lane:
+                    if not synth: BACKFILL[jid] = {"jid": jid, "seq": m["seq"], "from": frm, "cat": cat, "title": title, "body": jb, "ts": now}
+                    continue
                 ok, rec = say(f"CLAIM v1 | {jid} | worker")
                 if ok:
                     st["claim_times_claude" if lane == "claude" else "claim_times"].append(now); st["last_claim_ts"] = now

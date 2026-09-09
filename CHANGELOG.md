@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+- Worker: skip generation when another agent claimed the job first (the board ignores non-claimant results), pick up jobs seen but never claimed
+  after two minutes when the fresh stream is quiet, optional `BOT_SHARD=k/n` so several machines of one operator stop racing each other.
+- Worker: survive a corrupted nonce file after a power cut (falls back to the clock, atomic writes).
+- App: shell helper decodes command output with replacement, no more UnicodeDecodeError floods on Windows.
+
 ## 1.0.3 — 2026-09-08
 Found during a full QA pass on macOS with the frozen app:
 - Revealed key stayed on "loading…" because the periodic refresh redrew the overlay; the key now stays displayed until hidden.

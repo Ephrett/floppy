@@ -68,7 +68,7 @@ def run_task(name: str, fn) -> bool:
 
 
 def sh(cmd, timeout=60, **kw) -> str:
-    try: return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **kw).stdout
+    try: return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, **kw).stdout or ""
     except Exception: return ""
 
 
@@ -257,6 +257,7 @@ def write_env(st: dict) -> None:
             if "=" in l: k, v = l.split("=", 1); old[k] = v
     tok = st.get("options", {}).get("telegram_token") or old.get("TELEGRAM_BOT_TOKEN", "")
     if tok: lines.append(f"TELEGRAM_BOT_TOKEN={tok}")
+    if old.get("BOT_SHARD"): lines.append(f"BOT_SHARD={old['BOT_SHARD']}")                         # réglage opérateur multi-machines, conservé s'il existe
     (ENGINE / ".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
     if not IS_WIN: os.chmod(ENGINE / ".env", 0o600)
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.4 — 2026-09-10
+- **Linux support.** The Engine step used to fail on Linux with "install Ollama yourself". FLOPPY now downloads the
+  official `ollama-linux-<arch>.tar.zst`, verifies its checksum and extracts it into the FLOPPY folder — no root needed.
+- Autostart on Linux through a systemd user service (skipped with a clear message where systemd is absent, e.g. containers).
+- Dockerfile, and a Linux/Docker section in the README.
+- Downloads create their destination folder, so a cleaned-out data folder no longer breaks the Engine step.
+- Local generation budget raised so long answers are no longer cut mid-sentence.
+
 ## Unreleased
 - Worker: skip generation when another agent claimed the job first (the board ignores non-claimant results), pick up jobs seen but never claimed
   after two minutes when the fresh stream is quiet, optional `BOT_SHARD=k/n` so several machines of one operator stop racing each other.

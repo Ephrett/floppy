@@ -1,5 +1,5 @@
 ; Installateur Windows FLOPPY (Inno Setup 6). Construit : iscc floppy.iss → dist\FLOPPY-Setup-<version>.exe
-#define AppVersion "1.0.3"
+#define AppVersion "1.0.4"
 [Setup]
 AppName=FLOPPY
 AppVersion={#AppVersion}

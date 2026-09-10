@@ -13,13 +13,14 @@ FROZEN = getattr(sys, "frozen", False)
 APP = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) if FROZEN else Path(__file__).resolve().parent
 ENGINE_SRC = APP / "engine" if (APP / "engine").exists() else APP.parent / "kit" / "worker-win"
 PROBE_SRC = (APP / "engine" / "probe.py") if (APP / "engine" / "probe.py").exists() else APP.parent / "kit" / "probe.py"
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 
 
 def script_cmd(name: str, *args: str) -> list:
     """Commande pour exécuter un script du moteur : le même exécutable (gelé) ou l'interpréteur + app.py, avec --run."""
     return [sys.executable] + ([] if FROZEN else [str(Path(__file__).resolve())]) + ["--run", name, *args]
 IS_WIN, IS_MAC = platform.system() == "Windows", platform.system() == "Darwin"
+IS_LINUX = platform.system() == "Linux"
 HOME = Path(os.environ.get("FLOPPY_HOME") or (Path(os.environ.get("LOCALAPPDATA", Path.home())) / "FLOPPY" if IS_WIN else Path.home() / "FLOPPY"))
 ENGINE, STATE, DL = HOME / "engine", HOME / "engine" / "state", HOME / "downloads"
 PORT = int(os.environ.get("FLOPPY_PORT", "8788")); BIND = os.environ.get("FLOPPY_BIND", "127.0.0.1")
@@ -78,7 +79,7 @@ def ollama_version() -> str | None:
 
 
 def ollama_bin() -> str | None:
-    cands = [str(HOME / "Ollama.app" / "Contents" / "Resources" / "ollama")] if IS_MAC else []
+    cands = [str(HOME / "Ollama.app" / "Contents" / "Resources" / "ollama")] if IS_MAC else [str(HOME / "ollama" / "bin" / "ollama")] if IS_LINUX else []
     wide = os.environ.get("PATH", "") + os.pathsep + os.pathsep.join(["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", str(Path.home() / ".local" / "bin")])   # une app lancée par le Finder n'a qu'un PATH minimal
     if not FORCE_INSTALL: cands += [shutil.which("ollama", path=wide)] + (["/Applications/Ollama.app/Contents/Resources/ollama", str(Path.home() / "Applications" / "Ollama.app" / "Contents" / "Resources" / "ollama")] if IS_MAC else [str(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"), str(Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Ollama" / "ollama.exe")] if IS_WIN else [])
     elif IS_WIN: cands += [str(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe")] if (HOME / "downloads" / "installed.flag").exists() else []
@@ -106,6 +107,7 @@ def task_scan() -> None:
 
 
 def download(url: str, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
     tlog(L(f"téléchargement {url}", f"downloading {url}"))
     req = urllib.request.Request(url, headers={"User-Agent": "FLOPPY/1.0"})
     with urllib.request.urlopen(req, timeout=60) as r, dest.open("wb") as f:
@@ -167,7 +169,24 @@ def task_install_ollama() -> None:
             if ollama_bin(): break
             time.sleep(2)
         start_ollama_server()
-    else: raise RuntimeError(L("Linux : installez Ollama avec  curl -fsSL https://ollama.com/install.sh | sh  puis relancez cette étape", "Linux: install Ollama with  curl -fsSL https://ollama.com/install.sh | sh  then rerun this step"))
+    elif IS_LINUX:
+        arch = "arm64" if platform.machine().lower() in ("aarch64", "arm64") else "amd64"
+        name = f"ollama-linux-{arch}.tar.zst"; t = DL / name
+        download(f"https://github.com/ollama/ollama/releases/latest/download/{name}", t); verify_ollama_download(t)
+        target = HOME / "ollama"; target.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(["tar", "--zstd", "-xf", str(t), "-C", str(target)], capture_output=True, text=True, timeout=900)
+        if r.returncode:                                                                       # tar sans zstd : décompression en Python (3.14+) puis extraction
+            try:
+                from compression import zstd
+                import tarfile
+                with zstd.ZstdFile(t, "rb") as z, tarfile.open(fileobj=z, mode="r|") as tf: tf.extractall(target)
+            except Exception as ex:
+                raise RuntimeError(L(f"extraction impossible ({(r.stderr or str(ex))[:100]}) — installe zstd (apt install zstd) puis réessaie",
+                                     f"extraction failed ({(r.stderr or str(ex))[:100]}) — install zstd (apt install zstd) then retry"))
+        b = target / "bin" / "ollama"
+        if not b.exists(): raise RuntimeError(L("binaire ollama introuvable après extraction", "ollama binary not found after extraction"))
+        os.chmod(b, 0o755); tlog(L(f"Ollama installé dans {target} (sans droits administrateur)", f"Ollama installed in {target} (no admin rights needed)")); start_ollama_server()
+    else: raise RuntimeError(L("système non pris en charge pour l'installation automatique du moteur", "unsupported system for the automatic engine install"))
     st = load_state(); st["ollama"] = {"installed": True, "version": ollama_version()}; save_state(st)
 
 
@@ -489,6 +508,15 @@ def autostart(enable: bool) -> str:
         if not enable: sh(["reg", "delete", key, "/v", "FLOPPY", "/f"], 20); return L("désactivé", "disabled")
         value = " ".join(f'"{c}"' for c in cmd); out = sh(["reg", "add", key, "/v", "FLOPPY", "/t", "REG_SZ", "/d", value, "/f"], 20)
         return L("activé (à l'ouverture de session, en arrière-plan)", "enabled (at login, in the background)") if "réussi" in out or "success" in out.lower() or out == "" else L("échec : ", "failed: ") + out[:80]
+    if IS_LINUX:
+        if not shutil.which("systemctl"): return L("systemd absent (conteneur ?) : lance FLOPPY toi-même au démarrage", "no systemd (container?): start FLOPPY yourself at boot")
+        u = Path.home() / ".config" / "systemd" / "user" / "floppy.service"
+        if not enable:
+            sh(["systemctl", "--user", "disable", "--now", "floppy.service"], 30); u.unlink(missing_ok=True); return L("désactivé", "disabled")
+        u.parent.mkdir(parents=True, exist_ok=True)
+        u.write_text("[Unit]\nDescription=FLOPPY\n\n[Service]\nExecStart=" + " ".join(cmd) + "\nRestart=always\n\n[Install]\nWantedBy=default.target\n", encoding="utf-8")
+        sh(["systemctl", "--user", "daemon-reload"], 30); out = sh(["systemctl", "--user", "enable", "--now", "floppy.service"], 30)
+        return L("activé (service utilisateur systemd)", "enabled (systemd user service)")
     return L("non pris en charge sur ce système", "not supported on this system")
 
 

@@ -58,6 +58,27 @@ FLOPPY_HOME=~/FLOPPY-dev FLOPPY_PORT=8790 FLOPPY_SIMULATE=1 python3 app.py --ope
 
 Flags: `--open` opens the UI in the browser instead of the native window, `--hidden` runs headless, `--play` resumes the worker at launch.
 
+## Linux and Docker
+
+Linux is supported from source. The engine is installed **without root**: FLOPPY downloads the official
+`ollama-linux-<arch>.tar.zst`, verifies its SHA-256 against the official release, and extracts it into
+`$FLOPPY_HOME/ollama`. You need `tar` with zstd support (`apt install zstd`) or Python 3.14+.
+
+```bash
+python3 -m pip install -r requirements.txt
+FLOPPY_HOME=~/FLOPPY python3 app.py --open
+```
+
+In a container, build the image and mount a volume so your key survives restarts:
+
+```bash
+docker build -t floppy .
+docker run -d --name floppy -p 8788:8788 -v floppy-data:/data floppy
+```
+
+Then open http://127.0.0.1:8788. Add `--gpus all` if the host has an NVIDIA GPU. Autostart uses a systemd
+user service where systemd is available; in a container, start it yourself.
+
 ## Build
 
 macOS: `./build-mac.sh` then `./build-dmg.sh` (and `./build-sign.sh` with a Developer ID certificate).

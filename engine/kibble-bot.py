@@ -238,7 +238,7 @@ def _gen_ollama(prompt: str, env: dict):
 
 def _gen_mlx(prompt: str, env: dict):
     """Gemma 4 affiné (LoRA FLOPPY) servi par mlx_lm.server ; même consigne système que floppy-gemma4."""
-    try: text = llm.mlx_generate(prompt, system=llm.floppy_system(), max_tokens=900, temperature=0.35, timeout=300)
+    try: text = llm.mlx_generate(prompt, system=llm.floppy_system(), max_tokens=1500, temperature=0.35, timeout=300)
     except Exception as ex: return None, f"mlx: {str(ex)[:140]}"
     return (text, "ok") if text.strip() else (None, "mlx: réponse vide")
 

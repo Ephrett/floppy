@@ -63,6 +63,8 @@ FLOPPY_HOME=~/FLOPPY-dev FLOPPY_PORT=8790 FLOPPY_SIMULATE=1 python3 app.py --ope
 | `FLOPPY_FORCE_INSTALL` | unset | `1` = ignore an existing Ollama (clean-machine tests) |
 | `FLOPPY_OLLAMA_PORT` | `11434` | port of the Ollama server the app talks to |
 
+Pace, parallel generations and the thermal limit are in **Settings → Allocated power**; they take effect without a restart.
+
 Flags: `--open` opens the UI in the browser instead of the native window, `--hidden` runs headless, `--play` resumes the worker at launch.
 
 ## Linux and Docker

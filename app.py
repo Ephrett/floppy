@@ -13,7 +13,7 @@ FROZEN = getattr(sys, "frozen", False)
 APP = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) if FROZEN else Path(__file__).resolve().parent
 ENGINE_SRC = APP / "engine" if (APP / "engine").exists() else APP.parent / "kit" / "worker-win"
 PROBE_SRC = (APP / "engine" / "probe.py") if (APP / "engine" / "probe.py").exists() else APP.parent / "kit" / "probe.py"
-VERSION = "1.0.6"
+VERSION = "1.0.7"
 
 
 def script_cmd(name: str, *args: str) -> list:
@@ -268,7 +268,8 @@ def write_env(st: dict) -> None:
     tier = st.get("probe", {}).get("tier", "C"); model = st.get("model", {}).get("name") or st.get("probe", {}).get("model") or "qwen3.5:4b"
     cap = int(st.get("options", {}).get("cadence") or st.get("probe", {}).get("jobs_per_hour_start") or 150)
     lines = [f"BOT_NAME={st.get('machine_name', 'floppy')}", f"TC_BASE={TC}", "BOT_ENGINES=ollama", f"OLLAMA_MODEL={model}", f"OLLAMA_URL={OLLAMA_URL}", "CLAUDE_HYBRID=0",
-             f"BOT_MAX_CLAIMS_DAY={cap}", f"BOT_MAX_CLAIMS_NIGHT={cap}", "BOT_LOCAL_VALIDATE_PER_HOUR=10", f"BOT_SELF_CHECK={'1' if tier in ('A', 'B') else '0'}",
+             f"BOT_MAX_CLAIMS_DAY={cap}", f"BOT_MAX_CLAIMS_NIGHT={cap}", "BOT_LOCAL_VALIDATE_PER_HOUR=10",
+             f"BOT_PARALLEL={st.get('options', {}).get('parallel') or (1 if cap <= 60 else 2 if cap <= 150 else 4)}",   # générations simultanées : moins = machine plus fraîche f"BOT_SELF_CHECK={'1' if tier in ('A', 'B') else '0'}",
              "BOT_OWN_DIDS=" + ",".join(d for d in {st.get("options", {}).get("operator", ""), st.get("options", {}).get("own_dids", "")} if d)]   # l'opérateur et ses autres machines : ni leurs jobs ni leurs livraisons
     old = {}
     if (ENGINE / ".env").exists():
@@ -397,19 +398,39 @@ def tg_watch(now: float) -> None:
         flag.write_text(day); tg_send(daily_text())
 
 
+THERMAL = {"paused": False, "since": 0.0}
+
+
+def thermal_guard() -> None:
+    """Met le worker en pause au-dessus de la température choisie, le reprend 5 °C plus bas. Sans réglage (0), ne fait rien."""
+    try: lim = int(load_state().get("options", {}).get("temp_limit") or 0)
+    except Exception: lim = 0
+    t = (BG.get("machine") or {}).get("gpu_temp")
+    if not lim or t is None: return
+    if not THERMAL["paused"] and WORKER["wanted"] and t >= lim:
+        THERMAL.update(paused=True, since=time.time()); stop_worker(); WORKER["wanted"] = True     # pause volontaire : on garde l'intention de tourner
+        alog(f"pause thermique à {t} °C (limite {lim})")
+        tg_send(f"🌡️ <b>FLOPPY</b> : " + (f"pause à {t} °C (limite {lim} °C). Je reprends sous {lim - 5} °C." if lang() == "fr" else f"paused at {t} °C (limit {lim} °C). Resuming below {lim - 5} °C."))
+    elif THERMAL["paused"] and t <= lim - 5:
+        THERMAL["paused"] = False; alog(f"reprise thermique à {t} °C")
+        if WORKER["wanted"] and not worker_alive(): start_worker()
+        tg_send(f"❄️ <b>FLOPPY</b> : " + (f"reprise à {t} °C." if lang() == "fr" else f"resumed at {t} °C."))
+
+
 def keepalive() -> None:
     last = {"machine": 0, "score": 0}
     while True:
         try:
             now = time.time()
-            if WORKER["wanted"] and not worker_alive():
+            if WORKER["wanted"] and not worker_alive() and not THERMAL["paused"]:
                 time.sleep(5); start_worker(); day = time.strftime("%Y-%m-%d")
                 if TG["restart_day"] != day: TG["restart_day"], TG["restarts_today"] = day, 0
                 TG["restarts_today"] += 1; alog(f"worker relancé ({TG['restarts_today']} fois aujourd'hui)")
                 if now - TG["restart"] > 1800:
                     TG["restart"] = now; n = TG["restarts_today"]
                     tg_send(f"⚠️ <b>FLOPPY</b> : " + (f"le worker s'était arrêté, je l'ai relancé ({n} fois aujourd'hui)." if lang() == "fr" else f"the worker had stopped, I restarted it ({n} times today)."))
-            if now - last["machine"] > 30: BG["machine"] = machine_health(); BG["autostart"] = autostart_enabled(); last["machine"] = now
+            if now - last["machine"] > 30:
+                BG["machine"] = machine_health(); BG["autostart"] = autostart_enabled(); last["machine"] = now; thermal_guard()
             if now - last["score"] > 900: refresh_score(); last["score"] = now
             tg_watch(now)
         except Exception: pass
@@ -567,7 +588,7 @@ class H(BaseHTTPRequestHandler):
             elif self.path.startswith("/api/state"):
                 st = load_state(); st["worker"] = {"running": worker_alive(), "since": WORKER["since"], "wanted": WORKER["wanted"]}
                 st["ollama"] = {"installed": bool(ollama_bin()), "version": ollama_version()}; st["task"] = TASK; st["simulate"] = SIMULATE; st["tier_notes"] = TIER_NOTES; st["home"] = str(HOME); st["os"] = platform.system()
-                st["options"] = {k: v for k, v in st.get("options", {}).items() if k != "telegram_token"}; st["telegram_set"] = bool(tg_token()); c = tg_chat(); st["telegram"] = {"set": st["telegram_set"], "paired": c.get("name"), "bot": c.get("bot") or load_state().get("options", {}).get("telegram_bot")}; st["version"] = VERSION; st["frozen"] = FROZEN; st["autostart"] = BG.get("autostart", False)
+                st["options"] = {k: v for k, v in st.get("options", {}).items() if k != "telegram_token"}; st["telegram_set"] = bool(tg_token()); c = tg_chat(); st["telegram"] = {"set": st["telegram_set"], "paired": c.get("name"), "bot": c.get("bot") or load_state().get("options", {}).get("telegram_bot")}; st["version"] = VERSION; st["frozen"] = FROZEN; st["autostart"] = BG.get("autostart", False); st["thermal_paused"] = THERMAL["paused"]
                 self.send(200, st)
             elif self.path.startswith("/api/stats"): self.send(200, stats())
             elif self.path.startswith("/api/seed-backup"):
@@ -593,7 +614,7 @@ class H(BaseHTTPRequestHandler):
             elif p == "/api/identity": self.send(200, {"started": run_task("identity", lambda: task_identity(b.get("mode", "new"), b.get("seed_hex")))})
             elif p == "/api/options":
                 st = load_state(); opts = st.setdefault("options", {})
-                rules = {"x_handle": r"^@?[A-Za-z0-9_]{1,15}$", "operator": r"^did:key:z[1-9A-HJ-NP-Za-km-z]{40,60}$", "cadence": r"^\d{2,3}$", "lang": r"^(fr|en)$",
+                rules = {"x_handle": r"^@?[A-Za-z0-9_]{1,15}$", "operator": r"^did:key:z[1-9A-HJ-NP-Za-km-z]{40,60}$", "cadence": r"^\d{2,3}$", "lang": r"^(fr|en)$", "parallel": r"^[1-8]$", "temp_limit": r"^(0|6[0-9]|7[0-9]|8[0-9]|90)$",
                          "telegram_token": r"^\d{6,12}:[A-Za-z0-9_-]{30,60}$", "own_dids": r"^(did:key:z[1-9A-HJ-NP-Za-km-z]{40,60})(,did:key:z[1-9A-HJ-NP-Za-km-z]{40,60})*$"}
                 for k, rx in rules.items():
                     if k not in b: continue

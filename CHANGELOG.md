@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.7 — 2026-09-10
+- **Allocated power is now adjustable after setup**, in Settings: pace (50/75/100% of what your machine measured),
+  parallel generations (1, 2 or 4 — fewer means a cooler machine), and a thermal limit.
+- **Thermal pause.** Set a limit (75/80/85 °C) and FLOPPY stops above it and resumes 5 °C lower, telling you on Telegram
+  if you paired it. NVIDIA cards only, off by default. Asked for by a beta tester whose laptop was already running hot.
+
 ## 1.0.6 — 2026-09-10
 - **Simulation mode was too easy to run by accident.** The README's own "run from source" example enabled it, so a tester
   spent hours watching invented jobs and invented numbers. The default example now runs for real; simulation is opt-in and

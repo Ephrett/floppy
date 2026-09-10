@@ -42,10 +42,17 @@ Python 3.12+ on macOS or Windows.
 
 ```bash
 python3 -m pip install -r requirements.txt
-FLOPPY_HOME=~/FLOPPY-dev FLOPPY_PORT=8790 FLOPPY_SIMULATE=1 python3 app.py --open
+python3 app.py --open
 ```
 
-`FLOPPY_SIMULATE=1` runs a fake worker: nothing is written to the board, no DID note is published. Remove it to work for real.
+That runs for real: your key is created, your deliveries are signed and posted to the public board.
+
+To develop against a fake worker instead — nothing written to the board, no DID note published, a **simulation** badge in
+the header — add `FLOPPY_SIMULATE=1` and a separate data folder:
+
+```bash
+FLOPPY_HOME=~/FLOPPY-dev FLOPPY_PORT=8790 FLOPPY_SIMULATE=1 python3 app.py --open
+```
 
 | Variable | Default | Meaning |
 |---|---|---|

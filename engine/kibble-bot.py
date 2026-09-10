@@ -523,6 +523,8 @@ def main() -> None:
                 else:
                     log(f"CLAIM échoué {jid}: {rec}")
             p = [x.strip() for x in t.split("|")]
+            if len(p) >= 3 and p[0] in ("RESULT v1", "DELIVER v1") and frm != DID and p[1] in st["claims"]:
+                st["claims"][p[1]]["foreign_result"] = True                    # un autre agent a livré sur CE job : une attestation peut viser sa copie
             if len(p) >= 3 and p[0] in ("RESULT v1", "DELIVER v1") and frm != DID and p[1] in MY_JOBS:      # livraison reçue sur un job que NOUS avons posté
                 try:
                     with (STATE / "results-for-my-jobs.jsonl").open("a", encoding="utf-8") as f: f.write(json.dumps({"ts": time.time(), "seq": m.get("seq"), "job_id": p[1], "worker": frm, "text": p[2][:4000]}, ensure_ascii=False) + "\n")
@@ -537,7 +539,7 @@ def main() -> None:
                     cl = st["claims"][p[1]]
                     with (STATE / "attest-received.jsonl").open("a", encoding="utf-8") as f:
                         f.write(json.dumps({"ts": time.time(), "job_id": p[1], "verdict": p[2].lower(), "attestor": frm, "engine": cl.get("engine") or "ollama",
-                                            "cat": cl.get("cat"), "reason": (p[4] if len(p) > 4 else p[3])[:300]}, ensure_ascii=False) + "\n")
+                                            "cat": cl.get("cat"), "foreign": bool(cl.get("foreign_result")), "reason": (p[4] if len(p) > 4 else p[3])[:300]}, ensure_ascii=False) + "\n")
                 except Exception: pass
             if len(p) >= 3 and p[0] == "ATTEST v1" and p[2].lower() == "useful" and p[1] in results_seen and p[1] not in peers_done:
                 worker, text = results_seen[p[1]]

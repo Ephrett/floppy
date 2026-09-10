@@ -13,7 +13,7 @@ FROZEN = getattr(sys, "frozen", False)
 APP = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) if FROZEN else Path(__file__).resolve().parent
 ENGINE_SRC = APP / "engine" if (APP / "engine").exists() else APP.parent / "kit" / "worker-win"
 PROBE_SRC = (APP / "engine" / "probe.py") if (APP / "engine" / "probe.py").exists() else APP.parent / "kit" / "probe.py"
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 
 
 def script_cmd(name: str, *args: str) -> list:
@@ -681,7 +681,8 @@ def main() -> None:
         if "--hidden" not in sys.argv:
             import webbrowser; webbrowser.open(f"http://127.0.0.1:{PORT}")
         return
-    print(f"FLOPPY {VERSION} sur http://{BIND}:{PORT} · dossier {HOME}" + (" · SIMULATION" if SIMULATE else ""), flush=True)
+    print(f"FLOPPY {VERSION} sur http://{BIND}:{PORT} · dossier {HOME}", flush=True)
+    if SIMULATE: print("*** MODE SIMULATION : rien ne part vers le tableau, les chiffres sont fabriqués. Relance sans FLOPPY_SIMULATE=1 pour travailler pour de vrai. ***", flush=True)
     if "--hidden" in sys.argv: srv.serve_forever(); return
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:

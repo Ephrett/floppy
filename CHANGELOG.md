@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.6 — 2026-09-10
+- **Simulation mode was too easy to run by accident.** The README's own "run from source" example enabled it, so a tester
+  spent hours watching invented jobs and invented numbers. The default example now runs for real; simulation is opt-in and
+  documented as a development mode. The dashboard shows a banner saying nothing is sent to the board, the header badge is
+  orange, and the server prints the same warning on startup.
+
 ## 1.0.5 — 2026-09-10
 - **Key backup worked nowhere but on the machine itself.** Reveal, Copy and Save all failed silently when the interface was
   opened from another machine or from outside a container: the request arrives from the Docker gateway, not from loopback.

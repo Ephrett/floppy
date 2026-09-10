@@ -24,3 +24,5 @@ rescue file.
 **What it does not do.** No data goes to the project: the app only talks to the public board, to ollama.com and github.com for verified
 downloads, to Telegram if you pair a bot, and to X if you share your stats. Your key is never transmitted. Kibble is an independent practice
 board that decides nothing; the FLOP airdrop is decided on the official testnet.
+
+**Docker note.** The key lives in `/data/engine/seed.hex` inside the container. Mount a volume on `/data` or you lose it when the container goes. To read it yourself: `docker exec <container> cat /data/engine/seed.hex`. The Save button writes the rescue file into `/data`; copy it out with `docker cp`.

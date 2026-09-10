@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.5 — 2026-09-10
+- **Key backup worked nowhere but on the machine itself.** Reveal, Copy and Save all failed silently when the interface was
+  opened from another machine or from outside a container: the request arrives from the Docker gateway, not from loopback.
+  The rescue file is now written by the app on its own machine (only the path travels), so Save works from any browser, and
+  the blocked Reveal explains where to read the key instead (`docker exec <container> cat /data/engine/seed.hex`).
+  `FLOPPY_ALLOW_REMOTE_KEY=1` opts into sending the key over the network; it stays off by default.
+- In a container the rescue file goes to the data folder (the mounted volume), not to a Downloads folder that does not exist.
+- Confirming the backup now warns when the key was never revealed nor saved in that window.
+
 ## 1.0.4 — 2026-09-10
 - **Linux support.** The Engine step used to fail on Linux with "install Ollama yourself". FLOPPY now downloads the
   official `ollama-linux-<arch>.tar.zst`, verifies its checksum and extracts it into the FLOPPY folder — no root needed.

@@ -13,7 +13,7 @@ FROZEN = getattr(sys, "frozen", False)
 APP = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) if FROZEN else Path(__file__).resolve().parent
 ENGINE_SRC = APP / "engine" if (APP / "engine").exists() else APP.parent / "kit" / "worker-win"
 PROBE_SRC = (APP / "engine" / "probe.py") if (APP / "engine" / "probe.py").exists() else APP.parent / "kit" / "probe.py"
-VERSION = "1.0.4"
+VERSION = "1.0.5"
 
 
 def script_cmd(name: str, *args: str) -> list:
@@ -416,6 +416,16 @@ def keepalive() -> None:
         time.sleep(3)
 
 
+def key_help() -> str:
+    """Message affiché quand la clé ne peut pas être renvoyée sur le réseau : comment la lire soi-même."""
+    sp = ENGINE / "seed.hex"
+    if os.environ.get("FLOPPY_IN_DOCKER") or Path("/.dockerenv").exists():
+        return L(f"Par sécurité la clé n'est renvoyée qu'à la machine elle-même. Depuis l'hôte :  docker exec <conteneur> cat {sp}",
+                 f"For safety the key is only returned to the machine itself. From the host:  docker exec <container> cat {sp}")
+    return L(f"Par sécurité la clé n'est renvoyée qu'à la machine elle-même. Ouvre ce fichier sur la machine :  {sp}",
+             f"For safety the key is only returned to the machine itself. Open this file on the machine:  {sp}")
+
+
 def machine_health() -> dict:
     h = {}
     if IS_MAC:
@@ -562,7 +572,8 @@ class H(BaseHTTPRequestHandler):
             elif self.path.startswith("/api/stats"): self.send(200, stats())
             elif self.path.startswith("/api/seed-backup"):
                 # Révélation de la clé pour la SAUVEGARDE de l'utilisateur : uniquement depuis cette machine (127.0.0.1), jamais journalisée, jamais transmise.
-                if self.client_address[0] not in ("127.0.0.1", "::1"): self.send(403, {"error": "local only"}); return
+                if self.client_address[0] not in ("127.0.0.1", "::1") and os.environ.get("FLOPPY_ALLOW_REMOTE_KEY") != "1":
+                    self.send(403, {"error": key_help()}); return                      # la clé ne part jamais sur le réseau sans dérogation explicite
                 sp = ENGINE / "seed.hex"
                 if not sp.exists(): self.send(404, {"error": L("pas de clé", "no key")}); return
                 self.send(200, {"seed_hex": sp.read_text().strip(), "did": load_state().get("identity", {}).get("did"), "path": str(sp)})
@@ -606,11 +617,10 @@ class H(BaseHTTPRequestHandler):
             elif p == "/api/telegram-unpair": tg_unpair(); self.send(200, {"ok": True})
             elif p == "/api/rescue-file":
                 # Fichier de secours écrit PAR L'APP (la fenêtre native ne télécharge pas les fichiers générés côté page) : Téléchargements, 600, puis révélé dans le Finder/l'Explorateur.
-                if self.client_address[0] not in ("127.0.0.1", "::1"): self.send(403, {"error": "local only"}); return
-                sp = ENGINE / "seed.hex"
+                sp = ENGINE / "seed.hex"                                            # écrit le fichier SUR la machine et ne renvoie qu'un chemin : pas de clé sur le réseau
                 if not sp.exists(): self.send(404, {"error": L("pas encore de clé", "no key yet")}); return
                 did = load_state().get("identity", {}).get("did", "") or ""; seed = sp.read_text().strip()
-                dl = Path.home() / "Downloads"; dl = dl if dl.is_dir() else HOME; f = dl / f"FLOPPY-rescue-{did[-8:] or 'key'}.txt"
+                dl = Path.home() / "Downloads"; dl = dl if (dl.is_dir() and not Path("/.dockerenv").exists()) else HOME; f = dl / f"FLOPPY-rescue-{did[-8:] or 'key'}.txt"
                 f.write_text(L(f"FLOPPY — fichier de secours de ton identité\nDID (public) : {did}\nCLÉ PRIVÉE (64 hex, SECRÈTE) : {seed}\n\nQui possède cette clé est toi. Garde ce fichier hors ligne : clé USB, gestionnaire de mots de passe ou papier. Jamais dans un chat, un e-mail ou un dossier cloud en clair.\nPour récupérer ton agent : FLOPPY → étape Identité → « Clé existante » → colle la clé privée.\n",
                                f"FLOPPY — rescue file for your identity\nDID (public): {did}\nPRIVATE KEY (64 hex, SECRET): {seed}\n\nWhoever holds this key is you. Keep this file offline: USB stick, password manager or paper. Never in a chat, an email or a plain cloud folder.\nTo recover your agent: FLOPPY → Identity step → \"Existing key\" → paste the private key.\n"), encoding="utf-8")
                 try: os.chmod(f, 0o600)

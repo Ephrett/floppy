@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.8 — 2026-09-11
+- **`BOT_SELF_CHECK` was never written to `engine/.env`.** In 1.0.7 the new `BOT_PARALLEL` entry swallowed the line that
+  followed it into its own trailing comment, so the self-check pass fell back to the worker's default and ran on every
+  tier, including the low-power ones it is meant to spare. Reported by [@0xKr4kN](https://github.com/0xKr4kN) in #1, with
+  the exact line and the fallback that masked it.
+- **One parallel generation is no longer offered, because it stops the agent from claiming.** The worker only takes a new
+  job while `backlog < BOT_PARALLEL`, so at 1 it goes quiet as soon as a single generation is in flight. The setting now
+  offers 2, 3 or 4, the automatic value never picks 1, and the server rejects it.
 ## 1.0.7 — 2026-09-10
 - **Allocated power is now adjustable after setup**, in Settings: pace (50/75/100% of what your machine measured),
   parallel generations (1, 2 or 4 — fewer means a cooler machine), and a thermal limit.

@@ -13,7 +13,7 @@ FROZEN = getattr(sys, "frozen", False)
 APP = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) if FROZEN else Path(__file__).resolve().parent
 ENGINE_SRC = APP / "engine" if (APP / "engine").exists() else APP.parent / "kit" / "worker-win"
 PROBE_SRC = (APP / "engine" / "probe.py") if (APP / "engine" / "probe.py").exists() else APP.parent / "kit" / "probe.py"
-VERSION = "1.0.7"
+VERSION = "1.0.8"
 
 
 def script_cmd(name: str, *args: str) -> list:
@@ -269,7 +269,8 @@ def write_env(st: dict) -> None:
     cap = int(st.get("options", {}).get("cadence") or st.get("probe", {}).get("jobs_per_hour_start") or 150)
     lines = [f"BOT_NAME={st.get('machine_name', 'floppy')}", f"TC_BASE={TC}", "BOT_ENGINES=ollama", f"OLLAMA_MODEL={model}", f"OLLAMA_URL={OLLAMA_URL}", "CLAUDE_HYBRID=0",
              f"BOT_MAX_CLAIMS_DAY={cap}", f"BOT_MAX_CLAIMS_NIGHT={cap}", "BOT_LOCAL_VALIDATE_PER_HOUR=10",
-             f"BOT_PARALLEL={st.get('options', {}).get('parallel') or (1 if cap <= 60 else 2 if cap <= 150 else 4)}",   # générations simultanées : moins = machine plus fraîche f"BOT_SELF_CHECK={'1' if tier in ('A', 'B') else '0'}",
+             f"BOT_PARALLEL={st.get('options', {}).get('parallel') or (2 if cap <= 150 else 4)}",   # générations simultanées : moins = machine plus fraîche, mais jamais 1 : le worker cesse de réclamer dès qu'une génération est en vol (backlog < BOT_PARALLEL)
+             f"BOT_SELF_CHECK={'1' if tier in ('A', 'B') else '0'}",
              "BOT_OWN_DIDS=" + ",".join(d for d in {st.get("options", {}).get("operator", ""), st.get("options", {}).get("own_dids", "")} if d)]   # l'opérateur et ses autres machines : ni leurs jobs ni leurs livraisons
     old = {}
     if (ENGINE / ".env").exists():
@@ -614,7 +615,7 @@ class H(BaseHTTPRequestHandler):
             elif p == "/api/identity": self.send(200, {"started": run_task("identity", lambda: task_identity(b.get("mode", "new"), b.get("seed_hex")))})
             elif p == "/api/options":
                 st = load_state(); opts = st.setdefault("options", {})
-                rules = {"x_handle": r"^@?[A-Za-z0-9_]{1,15}$", "operator": r"^did:key:z[1-9A-HJ-NP-Za-km-z]{40,60}$", "cadence": r"^\d{2,3}$", "lang": r"^(fr|en)$", "parallel": r"^[1-8]$", "temp_limit": r"^(0|6[0-9]|7[0-9]|8[0-9]|90)$",
+                rules = {"x_handle": r"^@?[A-Za-z0-9_]{1,15}$", "operator": r"^did:key:z[1-9A-HJ-NP-Za-km-z]{40,60}$", "cadence": r"^\d{2,3}$", "lang": r"^(fr|en)$", "parallel": r"^[2-8]$", "temp_limit": r"^(0|6[0-9]|7[0-9]|8[0-9]|90)$",
                          "telegram_token": r"^\d{6,12}:[A-Za-z0-9_-]{30,60}$", "own_dids": r"^(did:key:z[1-9A-HJ-NP-Za-km-z]{40,60})(,did:key:z[1-9A-HJ-NP-Za-km-z]{40,60})*$"}
                 for k, rx in rules.items():
                     if k not in b: continue

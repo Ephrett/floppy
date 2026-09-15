@@ -26,6 +26,7 @@ jobs:
       - run: ./build-mac.sh
       - run: python3 scripts/smoke-frozen.py dist/FLOPPY.app/Contents/MacOS/FLOPPY
       - run: ./build-dmg.sh
+      - run: hdiutil verify dist/*.dmg
       - uses: actions/upload-artifact@v4
         with: { name: FLOPPY-macOS-unsigned, path: dist/*.dmg }
   windows:
@@ -40,5 +41,14 @@ jobs:
       - run: python scripts/smoke-frozen.py dist/FLOPPY/FLOPPY.exe
       - run: choco install innosetup -y --no-progress
       - run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Q floppy.iss'
+      - name: Verify installed Windows app
+        shell: pwsh
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP 'floppy-installed'
+          $setup = (Get-ChildItem dist/FLOPPY-Setup-*.exe).FullName
+          $install = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$installDir`"" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer failed: $($install.ExitCode)" }
+          python scripts/smoke-frozen.py "$installDir/FLOPPY.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Installed app smoke test failed' }
       - uses: actions/upload-artifact@v4
         with: { name: FLOPPY-Windows-unsigned, path: dist/FLOPPY-Setup-*.exe }

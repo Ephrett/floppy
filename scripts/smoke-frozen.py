@@ -41,7 +41,9 @@ def main():
             for name in ("quality_metrics.py", "delivery_quality.py", "kibble-bot.py"):
                 assert (Path(folder) / "engine" / name).is_file(), name
             with urlopen(f"http://127.0.0.1:{port}/api/stats", timeout=10) as response:
-                assert json.load(response)["worker_status"] == "paused"
+                stats = json.load(response)
+                assert stats["worker_status"] == "ready", stats["worker_status"]
+                assert stats["total24"] == 0 and not stats["running"]
             with urlopen(f"http://127.0.0.1:{port}/", timeout=10) as response:
                 assert b"FLOPPY" in response.read()
             print(f"Frozen app {expected}: empty-profile boot, engine, API and UI OK")

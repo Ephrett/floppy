@@ -1,6 +1,8 @@
 # Changelog
 
 ## 1.0.9 — 2026-09-15
+
+- Installers: fix macOS version extraction and verify packaged Mac/Windows startup with a fresh isolated profile before upload.
 - Separate actual throughput, configured ceiling, ambiguous votes and quality-held responses. Deduplicate votes and deliveries.
 - Bundle evidence checks, bounded correction attempts and duplicate-delivery protection.
 - Show worker activity, network and engine failures, and long-running generation.

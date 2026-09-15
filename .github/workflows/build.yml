@@ -23,7 +23,9 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: python3 -m pip install -r requirements.txt
-      - run: ./build-mac.sh && ./build-dmg.sh
+      - run: ./build-mac.sh
+      - run: python3 scripts/smoke-frozen.py dist/FLOPPY.app/Contents/MacOS/FLOPPY
+      - run: ./build-dmg.sh
       - uses: actions/upload-artifact@v4
         with: { name: FLOPPY-macOS-unsigned, path: dist/*.dmg }
   windows:
@@ -35,6 +37,7 @@ jobs:
         with: { python-version: "3.12" }
       - run: python -m pip install -r requirements.txt
       - run: powershell -File build-win.ps1
+      - run: python scripts/smoke-frozen.py dist/FLOPPY/FLOPPY.exe
       - run: choco install innosetup -y --no-progress
       - run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Q floppy.iss'
       - uses: actions/upload-artifact@v4

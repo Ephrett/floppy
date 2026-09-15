@@ -13,7 +13,10 @@ FROZEN = getattr(sys, "frozen", False)
 APP = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) if FROZEN else Path(__file__).resolve().parent
 ENGINE_SRC = APP / "engine" if (APP / "engine").exists() else APP.parent / "kit" / "worker-win"
 PROBE_SRC = (APP / "engine" / "probe.py") if (APP / "engine" / "probe.py").exists() else APP.parent / "kit" / "probe.py"
-VERSION = "1.0.8"
+VERSION = "1.0.9"
+ENGINE_VERSION = "1.0.9-evidence-v1"
+sys.path.insert(0, str(ENGINE_SRC))
+from quality_metrics import snapshot as quality_snapshot, read_rows
 
 
 def script_cmd(name: str, *args: str) -> list:
@@ -27,7 +30,7 @@ PORT = int(os.environ.get("FLOPPY_PORT", "8788")); BIND = os.environ.get("FLOPPY
 SIMULATE = os.environ.get("FLOPPY_SIMULATE") == "1"
 PY = sys.executable; OLLAMA_PORT = os.environ.get("FLOPPY_OLLAMA_PORT", "11434"); OLLAMA_URL = f"http://127.0.0.1:{OLLAMA_PORT}"; BOARD = "https://flop-kibble.onrender.com"; TC = "https://technocore.chat"
 FORCE_INSTALL = os.environ.get("FLOPPY_FORCE_INSTALL") == "1"     # test « machine vierge » : ignore l'Ollama déjà présent
-ENGINE_FILES = ["kibble-bot.py", "sign.py", "llm.py", "tg.py", "checkin.py"]
+ENGINE_FILES = ["kibble-bot.py", "sign.py", "llm.py", "tg.py", "checkin.py", "quality_metrics.py", "delivery_quality.py"]
 TIER_NOTES = {"A": "GPU ≥ 22 Go ou Mac ≥ 30 Go : Gemma 4 26B, ~300 jobs/h de départ", "B": "GPU ≥ 11 Go ou Mac ≥ 20 Go : Gemma 4 12B, ~200 jobs/h",
               "C": "GPU ≥ 5,5 Go ou Mac ≥ 12 Go : Qwen 3.5 4B, ~150 jobs/h", "D": "sans GPU : Qwen 3.5 4B sur CPU, cadence réduite"}
 LOCK = threading.Lock(); TASK = {"name": None, "status": "idle", "log": [], "progress": 0}; WORKER = {"proc": None, "wanted": False, "since": None}
@@ -92,7 +95,12 @@ def ensure_engine_files() -> None:
     ENGINE.mkdir(parents=True, exist_ok=True); STATE.mkdir(parents=True, exist_ok=True); DL.mkdir(parents=True, exist_ok=True)
     for f in ENGINE_FILES + ["probe.py"]:
         src = (PROBE_SRC if f == "probe.py" else ENGINE_SRC / f)
-        if src.exists() and (not (ENGINE / f).exists() or src.stat().st_mtime > (ENGINE / f).stat().st_mtime): shutil.copy2(src, ENGINE / f)
+        if not src.exists(): raise RuntimeError(f"Missing bundled engine file: {f}")
+        dst = ENGINE / f
+        if not dst.exists() or src.read_bytes() != dst.read_bytes():
+            tmp = dst.with_suffix(dst.suffix + ".updating")
+            shutil.copy2(src, tmp); os.replace(tmp, dst)
+    (ENGINE / "version.json").write_text(json.dumps({"version": ENGINE_VERSION}), encoding="utf-8")
 
 
 # ------------------------------------------------------------------ étapes
@@ -288,7 +296,10 @@ def worker_alive() -> bool: return WORKER["proc"] is not None and WORKER["proc"]
 
 
 def start_worker() -> None:
+    WORKER["wanted"] = True
     if worker_alive(): return
+    BG.setdefault("machine", {})["ac_power"] = ac_power()
+    if pause_reason(): return
     ensure_engine_files(); st = load_state(); write_env(st)
     script = ENGINE / ("fake_worker.py" if SIMULATE else "kibble-bot.py")
     if SIMULATE: shutil.copy2(APP / "fake_worker.py", script)
@@ -402,20 +413,44 @@ def tg_watch(now: float) -> None:
 THERMAL = {"paused": False, "since": 0.0}
 
 
+def ac_power():
+    """True on mains, False on battery, None when the OS cannot tell us."""
+    try:
+        if IS_MAC:
+            out = sh(["pmset", "-g", "batt"], 5)
+            return True if "AC Power" in out else False if "Battery Power" in out else None
+        if IS_WIN:
+            import ctypes
+            class Power(ctypes.Structure):
+                _fields_ = [("ac", ctypes.c_ubyte), ("flags", ctypes.c_ubyte), ("percent", ctypes.c_ubyte), ("reserved", ctypes.c_ubyte), ("life", ctypes.c_ulong), ("full", ctypes.c_ulong)]
+            p = Power()
+            if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(p)) and p.ac in (0, 1): return bool(p.ac)
+            return None
+        supplies = list(Path("/sys/class/power_supply").glob("*"))
+        online = [int((p / "online").read_text().strip()) for p in supplies if (p / "online").exists()]
+        if online: return any(online)
+        return None
+    except (OSError, ValueError, AttributeError): return None
+
+
+def pause_reason():
+    o = load_state().get("options", {}); m = BG.get("machine") or {}
+    limit = int(o.get("temp_limit") or 0); temperature = m.get("gpu_temp")
+    if limit and temperature is not None:
+        THERMAL["paused"] = temperature > limit - 5 if THERMAL["paused"] else temperature >= limit
+    elif not limit: THERMAL["paused"] = False
+    if THERMAL["paused"]: return "thermal"
+    if str(o.get("ac_only", "0")) == "1" and m.get("ac_power") is not True:
+        return "battery" if m.get("ac_power") is False else "power_unknown"
+    return None
+
+
 def thermal_guard() -> None:
-    """Met le worker en pause au-dessus de la température choisie, le reprend 5 °C plus bas. Sans réglage (0), ne fait rien."""
-    try: lim = int(load_state().get("options", {}).get("temp_limit") or 0)
-    except Exception: lim = 0
-    t = (BG.get("machine") or {}).get("gpu_temp")
-    if not lim or t is None: return
-    if not THERMAL["paused"] and WORKER["wanted"] and t >= lim:
-        THERMAL.update(paused=True, since=time.time()); stop_worker(); WORKER["wanted"] = True     # pause volontaire : on garde l'intention de tourner
-        alog(f"pause thermique à {t} °C (limite {lim})")
-        tg_send(f"🌡️ <b>FLOPPY</b> : " + (f"pause à {t} °C (limite {lim} °C). Je reprends sous {lim - 5} °C." if lang() == "fr" else f"paused at {t} °C (limit {lim} °C). Resuming below {lim - 5} °C."))
-    elif THERMAL["paused"] and t <= lim - 5:
-        THERMAL["paused"] = False; alog(f"reprise thermique à {t} °C")
-        if WORKER["wanted"] and not worker_alive(): start_worker()
-        tg_send(f"❄️ <b>FLOPPY</b> : " + (f"reprise à {t} °C." if lang() == "fr" else f"resumed at {t} °C."))
+    reason = pause_reason()
+    if reason and worker_alive():
+        wanted = WORKER["wanted"]; stop_worker(); WORKER["wanted"] = wanted
+        alog(L(f"worker en pause : {reason}", f"worker paused: {reason}"))
+    elif not reason and WORKER["wanted"] and not worker_alive(): start_worker()
 
 
 def keepalive() -> None:
@@ -423,18 +458,20 @@ def keepalive() -> None:
     while True:
         try:
             now = time.time()
-            if WORKER["wanted"] and not worker_alive() and not THERMAL["paused"]:
+            if WORKER["wanted"] and not worker_alive() and not pause_reason():
                 time.sleep(5); start_worker(); day = time.strftime("%Y-%m-%d")
                 if TG["restart_day"] != day: TG["restart_day"], TG["restarts_today"] = day, 0
                 TG["restarts_today"] += 1; alog(f"worker relancé ({TG['restarts_today']} fois aujourd'hui)")
                 if now - TG["restart"] > 1800:
                     TG["restart"] = now; n = TG["restarts_today"]
                     tg_send(f"⚠️ <b>FLOPPY</b> : " + (f"le worker s'était arrêté, je l'ai relancé ({n} fois aujourd'hui)." if lang() == "fr" else f"the worker had stopped, I restarted it ({n} times today)."))
-            if now - last["machine"] > 30:
+            if now - last["machine"] > 15:
                 BG["machine"] = machine_health(); BG["autostart"] = autostart_enabled(); last["machine"] = now; thermal_guard()
             if now - last["score"] > 900: refresh_score(); last["score"] = now
             tg_watch(now)
-        except Exception: pass
+        except Exception as ex:
+            if time.time() - last.get("error", 0) > 60:
+                alog(L(f"contrôle machine échoué : {type(ex).__name__}", f"health check failed: {type(ex).__name__}")); last["error"] = time.time()
         time.sleep(3)
 
 
@@ -449,7 +486,7 @@ def key_help() -> str:
 
 
 def machine_health() -> dict:
-    h = {}
+    h = {"ac_power": ac_power()}
     if IS_MAC:
         m = re.search(r"used = ([\d.]+)([MG])", sh(["sysctl", "-n", "vm.swapusage"], 5)); h["swap_gb"] = round(float(m.group(1)) / (1024 if m.group(2) == "M" else 1), 1) if m else None
         m = re.search(r"free percentage: (\d+)%", sh(["memory_pressure"], 10)); h["free_pct"] = int(m.group(1)) if m else None
@@ -469,7 +506,8 @@ def refresh_score() -> None:
     if not did or SIMULATE: return
     try:
         d = json.load(urllib.request.urlopen(f"{BOARD}/api/score?did={did}", timeout=60)); terms = {k: v.get("count") for k, v in d.get("breakdown", {}).get("terms", {}).items()}
-        BG["score"] = {"ts": time.time(), "score": d.get("score"), "rank": d.get("rank"), "franchised": d.get("franchised"), **terms}
+        BG["score_error"] = None
+        BG["score"] = {"engine_warm": d.get("engine_warm"), "ts": time.time(), "score": d.get("score"), "rank": d.get("rank"), "franchised": d.get("franchised"), **terms}
         with (STATE / "score-history.jsonl").open("a") as f: f.write(json.dumps(BG["score"]) + "\n")
     except Exception as ex: BG["score_error"] = str(ex)[:120]
 
@@ -492,22 +530,35 @@ def stats() -> dict:
                 m = RESULT.match(b); ev.append((t, "result", m.group(1) if m else "", m.group(3) if m else "")) if m else None
             elif b.startswith("CLAIM "):
                 m = CLAIM.match(b); ev.append((t, "claim", m.group(1) if m else "", "")); titles[m.group(1)] = m.group(2)[:80] if m else ""
+            elif b.startswith("NETWORK WAIT"): ev.append((t, "network", "", ""))
             elif b.startswith("génération échouée"): ev.append((t, "fail", "", ""))
             elif b.startswith("VALIDATE-local useful"): ev.append((t, "given", "", ""))
             elif b.startswith("écartés 10 min"): skipped = b
-    att = []
-    ap = STATE / "attest-received.jsonl"
-    if ap.exists():
-        for l in decode_any(ap.read_bytes()).splitlines()[-5000:]:
-            try: a = json.loads(l)
-            except Exception: continue
-            if now - a.get("ts", 0) <= 86400: att.append(a)
+    quality = [a for a in quality_snapshot(STATE) if now - a["ts"] <= 86400]
+    att = [a for a in quality if not a["ambiguous"]]
+    try: claims = json.loads((STATE / "bot.json").read_text(encoding="utf-8")).get("claims", {})
+    except (OSError, ValueError): claims = {}
+    held = sum(c.get("quality_hold", {}).get("ts", 0) >= now - 86400 for c in claims.values())
     h0 = int(now // 3600) * 3600; hours = [h0 - 3600 * i for i in range(23, -1, -1)]
     def hourly(kind): c = collections.Counter(int(e[0] // 3600) * 3600 for e in ev if e[1] == kind); return [c.get(h, 0) for h in hours]
     def hourly_att(v): c = collections.Counter(int(a["ts"] // 3600) * 3600 for a in att if a.get("verdict") == v); return [c.get(h, 0) for h in hours]
     day0 = now - (time.localtime(now).tm_hour * 3600 + time.localtime(now).tm_min * 60 + time.localtime(now).tm_sec)
-    res = [e for e in ev if e[1] == "result"]
-    return {"now": now, "running": worker_alive(), "since": WORKER["since"], "rate10": sum(1 for e in res if now - e[0] < 600) * 6, "rate60": sum(1 for e in res if now - e[0] < 3600),
+    unique = {}
+    for e in ev:
+        if e[1] == "result": unique.setdefault(e[2], e)
+    res = list(unique.values())
+    ev = [e for e in ev if e[1] != "result"] + res
+    status = pause_reason()
+    if not status:
+        if not WORKER["wanted"]: status = "ready" if not WORKER["since"] and not res else "paused"
+        elif not worker_alive(): status = "restarting"
+        elif any(e[1] == "network" and now - e[0] < 45 for e in ev): status = "network"
+        elif not SIMULATE and BG.get("machine", {}).get("ollama") is None: status = "engine_unavailable"
+        elif any(c.get("in_flight") for c in claims.values()): status = "stalled" if all(now - c.get("claimed_at", now) > 600 for c in claims.values() if c.get("in_flight")) else "generating"
+        elif any(now - e[0] < 180 for e in res): status = "working"
+        else: status = "waiting"
+    cap = int(load_state().get("options", {}).get("cadence") or load_state().get("probe", {}).get("jobs_per_hour_start") or 150)
+    return {"now": now, "worker_status": status, "cap_per_hour": cap, "engine_version": ENGINE_VERSION, "ambiguous24": sum(a["ambiguous"] for a in quality), "held24": held, "thermal_available": BG.get("machine", {}).get("gpu_temp") is not None, "running": worker_alive(), "since": WORKER["since"], "rate10": sum(1 for e in res if now - e[0] < 600) * 6, "rate60": sum(1 for e in res if now - e[0] < 3600),
             "today": sum(1 for e in res if e[0] >= day0), "total24": len(res), "claims60": sum(1 for e in ev if e[1] == "claim" and now - e[0] < 3600), "fails60": sum(1 for e in ev if e[1] == "fail" and now - e[0] < 3600),
             "given24": sum(1 for e in ev if e[1] == "given"), "useful24": sum(a.get("verdict") == "useful" for a in att), "not24": sum(a.get("verdict") == "not" for a in att),
             "attesters24": len({a.get("attestor") for a in att if a.get("verdict") == "useful"}), "skipped": skipped, "hours": hours, "h_results": hourly("result"), "h_useful": hourly_att("useful"), "h_not": hourly_att("not"),
@@ -615,7 +666,7 @@ class H(BaseHTTPRequestHandler):
             elif p == "/api/identity": self.send(200, {"started": run_task("identity", lambda: task_identity(b.get("mode", "new"), b.get("seed_hex")))})
             elif p == "/api/options":
                 st = load_state(); opts = st.setdefault("options", {})
-                rules = {"x_handle": r"^@?[A-Za-z0-9_]{1,15}$", "operator": r"^did:key:z[1-9A-HJ-NP-Za-km-z]{40,60}$", "cadence": r"^\d{2,3}$", "lang": r"^(fr|en)$", "parallel": r"^[2-8]$", "temp_limit": r"^(0|6[0-9]|7[0-9]|8[0-9]|90)$",
+                rules = {"x_handle": r"^@?[A-Za-z0-9_]{1,15}$", "operator": r"^did:key:z[1-9A-HJ-NP-Za-km-z]{40,60}$", "cadence": r"^\d{2,3}$", "lang": r"^(fr|en)$", "parallel": r"^[2-8]$", "ac_only": r"^[01]$", "temp_limit": r"^(0|6[0-9]|7[0-9]|8[0-9]|90)$",
                          "telegram_token": r"^\d{6,12}:[A-Za-z0-9_-]{30,60}$", "own_dids": r"^(did:key:z[1-9A-HJ-NP-Za-km-z]{40,60})(,did:key:z[1-9A-HJ-NP-Za-km-z]{40,60})*$"}
                 for k, rx in rules.items():
                     if k not in b: continue
@@ -631,6 +682,7 @@ class H(BaseHTTPRequestHandler):
                         self.send(400, {"error": ("jeton refusé par Telegram : " if lang() == "fr" else "token rejected by Telegram: ") + str(ex)[:100]}); return
                 save_state(st)
                 if (ENGINE / "seed.hex").exists(): write_env(st)
+                BG.setdefault("machine", {})["ac_power"] = ac_power(); thermal_guard()
                 self.send(200, {"ok": True})
             elif p == "/api/telegram-pair": self.send(200, {"started": run_task("telegram", task_tg_pair)})
             elif p == "/api/telegram-test":

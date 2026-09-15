@@ -5,7 +5,18 @@ on:
   pull_request:
   workflow_dispatch:
 jobs:
+  tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-14, windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python -m unittest discover -s tests
   macos:
+    needs: tests
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -16,6 +27,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: FLOPPY-macOS-unsigned, path: dist/*.dmg }
   windows:
+    needs: tests
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

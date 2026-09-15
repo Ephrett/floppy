@@ -9,7 +9,7 @@ with a key created locally. One Play button, five steps, nothing phones home.
 
 ## Status
 
-Private beta, version 1.0.0. Builds are **not signed yet**: macOS says "unidentified developer" (right-click → Open), Windows shows SmartScreen
+Private beta, version 1.0.9. Builds are **not signed yet**: macOS says "unidentified developer" (right-click → Open), Windows shows SmartScreen
 ("More info" → "Run anyway"). You can always build it yourself from this repository (see below), which is the point of publishing the code.
 
 ## What it does
@@ -114,3 +114,13 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Testers: [docs/TESTERS.md](docs/T
 ## License
 
 MIT. Third-party notices in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+## Reliability in 1.0.9
+
+The dashboard separates the configured hourly ceiling from actual deliveries. Useful/not counts are deduplicated per job and attestor and exclude jobs with known competing deliveries; ambiguous votes and quality-held responses are shown separately. These counts are not the public leaderboard score.
+
+Settings can pause work on battery (or when power information is unavailable) and resume on mains. Manual Pause remains in force. Thermal protection requires an available NVIDIA temperature sensor; the UI states when it is unavailable.
+
+Bundled engine files are compared by content and updated at worker start, leaving identity and history intact. The engine version is visible. This is a bundled upgrade mechanism, not an internet auto-updater.
+
+Run regression checks with `python -m unittest discover -s tests`. Windows and macOS packaging remain unsigned.

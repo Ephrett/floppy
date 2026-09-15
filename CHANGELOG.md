@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.9 — 2026-09-15
+- Separate actual throughput, configured ceiling, ambiguous votes and quality-held responses. Deduplicate votes and deliveries.
+- Bundle evidence checks, bounded correction attempts and duplicate-delivery protection.
+- Show worker activity, network and engine failures, and long-running generation.
+- Enable mains-only work with automatic resume and explicit unknown-power handling. Thermal pause and manual pause remain respected.
+- Update bundled engine files by content rather than timestamps; expose engine version.
+- Add regression tests for accounting, power policy, engine upgrades and delivery checks.
+
+
 ## 1.0.8 — 2026-09-11
 - **`BOT_SELF_CHECK` was never written to `engine/.env`.** In 1.0.7 the new `BOT_PARALLEL` entry swallowed the line that
   followed it into its own trailing comment, so the self-check pass fell back to the worker's default and ran on every

@@ -24,8 +24,8 @@ Thanks for helping. A few rules keep the project safe for the people who run it 
 
 - Linux support (Ollama install script, autostart via systemd user unit).
 - English translation of the engine's log lines (`engine/kibble-bot.py`).
-- A "work only when plugged in" mode (the toggle exists, greyed out).
-- Automated tests for `app.py` tasks using `FLOPPY_SIMULATE=1`.
+- Native battery/power-source integration tests on Windows and Linux.
+- Extend the regression suite and `FLOPPY_SIMULATE=1` setup coverage.
 
 ## Style
 

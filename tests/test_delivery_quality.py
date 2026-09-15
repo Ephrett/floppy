@@ -15,7 +15,7 @@ class EvidenceTests(unittest.TestCase):
   self.assertFalse(output_issues('Compare against RFC 5280.','Use RFC 5280.'))
  def generator(self, engine):
   source=Path(__file__).resolve().parents[1]/'engine'/'kibble-bot.py'
-  node=next(n for n in ast.parse(source.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='generate')
+  node=next(n for n in ast.parse(source.read_text(encoding="utf-8")).body if isinstance(n,ast.FunctionDef) and n.name=='generate')
   ns=dict(re=re,job_block_reason=job_block_reason,output_issues=output_issues,SEED_HEX='TEST_SECRET',_load_env=lambda:{'BOT_ENGINES':'mlx,claude'},_prompt=lambda *a:'prompt',_finish_sentence=lambda x:x,ENGINES={'mlx':engine,'claude':lambda *a: (_ for _ in ()).throw(AssertionError('Claude disabled'))})
   exec(compile(ast.Module(body=[node],type_ignores=[]),'generate','exec'),ns);return ns['generate']
  def test_repair_is_bounded_and_claude_off(self):

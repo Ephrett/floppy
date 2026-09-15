@@ -3,7 +3,7 @@ from pathlib import Path
 class DeliveryGuard(unittest.TestCase):
     def test_concurrent_recovery_and_retry_only_send_once(self):
         source=Path(__file__).resolve().parents[1]/'engine'/'kibble-bot.py'
-        node=next(n for n in ast.parse(source.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='deliver')
+        node=next(n for n in ast.parse(source.read_text(encoding="utf-8")).body if isinstance(n,ast.FunctionDef) and n.name=='deliver')
         started=threading.Event(); release=threading.Event(); calls=[]
         def worker(st,jid,*args):
             calls.append(jid);started.set();release.wait(2);st['claims'][jid]['delivered']=1

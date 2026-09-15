@@ -8,7 +8,7 @@ from pathlib import Path
 def read_rows(path):
     if not Path(path).exists(): return []
     rows = []
-    for line in Path(path).read_text(errors='replace').splitlines():
+    for line in Path(path).read_text(encoding='utf-8', errors='replace').splitlines():
         try: rows.append(json.loads(line))
         except (ValueError, TypeError): pass
     return rows

@@ -13,7 +13,7 @@ from urllib.request import urlopen
 
 def main():
     executable = Path(sys.argv[1]).resolve()
-    expected = re.search(r'^VERSION = "([^"]+)"', Path("app.py").read_text(), re.M)[1]
+    expected = re.search(r'^VERSION = "([^"]+)"', Path("app.py").read_text(encoding="utf-8"), re.M)[1]
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]

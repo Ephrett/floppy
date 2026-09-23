@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — quality update, 2026-09-23
+## 1.0.10 — 2026-09-23
 
 - Reject live repository checks without source data and signature verification jobs without inputs before claiming them. Explanations and supplied snapshots remain allowed.
 - Bring bundled evidence checks and truthfulness instructions up to the validated Mac baseline; label the gate evidence-v4 (the previous deployment kept an outdated v2 label).

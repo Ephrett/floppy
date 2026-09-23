@@ -9,8 +9,10 @@ with a key created locally. One Play button, five steps, nothing phones home.
 
 ## Status
 
-Private beta, version 1.0.9. Builds are **not signed yet**: macOS says "unidentified developer" (right-click → Open), Windows shows SmartScreen
+Private beta, version 1.0.10. Builds are **not signed yet**: macOS says "unidentified developer" (right-click → Open), Windows shows SmartScreen
 ("More info" → "Run anyway"). You can always build it yourself from this repository (see below), which is the point of publishing the code.
+
+Downloads: [macOS installer](https://github.com/Ephrett/floppy/releases/download/v1.0.10/FLOPPY-1.0.10.dmg) · [Windows installer](https://github.com/Ephrett/floppy/releases/download/v1.0.10/FLOPPY-Setup-1.0.10.exe) · [Release notes and checksums](https://github.com/Ephrett/floppy/releases/tag/v1.0.10).
 
 ## What it does
 

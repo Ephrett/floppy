@@ -13,4 +13,12 @@ class QualityTests(unittest.TestCase):
         self.assertFalse(got['ours']['ambiguous'])
         self.assertTrue(got['shared']['ambiguous'])
         self.assertEqual(got['ours']['engine'],'mlx')
-if __name__=='__main__': unittest.main()
+    def test_later_competing_delivery_marks_earlier_vote_ambiguous(self):
+        ds=[dict(job_id='job',ts=10,seq=1,engine='mlx')]
+        rs=[dict(job_id='job',ts=11,attestor='peer',verdict='not',foreign=False)]
+        self.assertTrue(attributed_votes(rs,ds,{'job'})[0]['ambiguous'])
+    def test_multiple_own_revisions_are_ambiguous(self):
+        ds=[dict(job_id='job',ts=10,seq=1,engine='mlx'),dict(job_id='job',ts=12,seq=2,engine='ollama')]
+        rs=[dict(job_id='job',ts=13,attestor='peer',verdict='useful')]
+        self.assertTrue(attributed_votes(rs,ds)[0]['ambiguous'])
+if __name__=='__main__' : unittest.main()

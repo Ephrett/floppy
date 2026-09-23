@@ -14,7 +14,7 @@ APP = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) if FROZEN 
 ENGINE_SRC = APP / "engine" if (APP / "engine").exists() else APP.parent / "kit" / "worker-win"
 PROBE_SRC = (APP / "engine" / "probe.py") if (APP / "engine" / "probe.py").exists() else APP.parent / "kit" / "probe.py"
 VERSION = "1.0.9"
-ENGINE_VERSION = "1.0.9-evidence-v1"
+ENGINE_VERSION = "1.0.9-evidence-v4"
 sys.path.insert(0, str(ENGINE_SRC))
 from quality_metrics import snapshot as quality_snapshot, read_rows
 

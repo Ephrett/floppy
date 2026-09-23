@@ -7,6 +7,10 @@ class EvidenceTests(unittest.TestCase):
   self.assertTrue(output_issues('Analyze the workload.','The flamegraph analysis reveals that 42% of CPU time is spent in formatting.'))
   self.assertFalse(output_issues('Measured formatting: 42% of CPU time.','The analysis shows 42% of CPU time is spent in formatting.'))
   self.assertFalse(output_issues('Suggest a threshold.','For example, assume 42% of CPU time is spent in formatting.'))
+ def test_unverified_percentage_improvement(self):
+  self.assertTrue(output_issues('Analyze allocation pressure.', 'This refactoring reduces the frequency of garbage collection cycles by 40 percent.'))
+  self.assertFalse(output_issues('Measured reduction: 40 percent.', 'This refactoring reduces the frequency of garbage collection cycles by 40 percent.'))
+  self.assertFalse(output_issues('Suggest a target.', 'For example, assume this reduces garbage collection cycles by 40 percent.'))
  def test_missing_artifact(self):
   self.assertIsNotNone(job_block_reason('Profiling','Analyze bottlenecks using flamegraphs. Success: isolates the hot execution path.'))
   self.assertIsNone(job_block_reason('Profiling','Explain how to record and read a flamegraph.'))

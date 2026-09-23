@@ -8,14 +8,19 @@ from pathlib import Path
 def read_rows(path):
     if not Path(path).exists(): return []
     rows = []
-    for line in Path(path).read_text(encoding='utf-8', errors='replace').splitlines():
+    for line in Path(path).read_text(errors='replace').splitlines():
         try: rows.append(json.loads(line))
         except (ValueError, TypeError): pass
     return rows
 
-def attributed_votes(rows, deliveries):
+def attributed_votes(rows, deliveries, competing_jobs=()):
     own = {r['job_id']: r for r in deliveries if r.get('seq') and r.get('engine')}
-    ambiguous_jobs = {r.get('job_id') for r in rows if r.get('foreign')}
+    ambiguous_jobs = {r.get('job_id') for r in rows if r.get('foreign')} | set(competing_jobs)
+    # Multiple own revisions also make a job-level attestation inconclusive.
+    versions = {}
+    for d in deliveries:
+        if d.get('seq'): versions.setdefault(d.get('job_id'), set()).add(d['seq'])
+    ambiguous_jobs.update(j for j, seqs in versions.items() if len(seqs) > 1)
     latest = {}
     for r in rows:
         d = own.get(r.get('job_id'))
@@ -28,4 +33,7 @@ def attributed_votes(rows, deliveries):
 
 def snapshot(state):
     state = Path(state)
-    return attributed_votes(read_rows(state/'attest-received.jsonl'), read_rows(state/'dataset.jsonl'))
+    try: claims = json.loads((state/'bot.json').read_text()).get('claims', {})
+    except (OSError, ValueError, AttributeError): claims = {}
+    competing = {j for j, c in claims.items() if c.get('foreign_result')}
+    return attributed_votes(read_rows(state/'attest-received.jsonl'), read_rows(state/'dataset.jsonl'), competing)

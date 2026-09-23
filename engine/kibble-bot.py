@@ -149,6 +149,10 @@ def _prompt(cat: str, title: str, job_text: str, variant: str = "A") -> str:
         "information given, say so in one clause instead of inventing it.\n\n"
     )
     return ("" if trivial else _exemplar(cat)) + (
+        "Truthfulness takes precedence over completing every requested field. You have no browsing, execution or measurement tools. "
+        "Never invent addresses, phone numbers, verification dates, experimental results or mechanisms connecting unrelated concepts. "
+        "If the premise is inconsistent, explain the mismatch. If essential evidence is absent, state what is missing. "
+        "Label proposed thresholds as illustrative, never measured or guaranteed. These rules override any example above. "
         "You are writing one deliverable for a public job board where validators check it against the SUCCESS CONDITION. "
         "Output ONLY the deliverable: a single paragraph of plain text, no markdown, no headings, no bullet characters, "
         "no line breaks, and never the vertical bar character. " + length + ". ANSWER FIRST: the first sentence must "

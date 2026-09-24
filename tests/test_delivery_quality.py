@@ -1,7 +1,7 @@
 import ast,json,re,sys,unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'engine'))
-from delivery_quality import job_block_reason,output_issues
+from delivery_quality import job_block_reason,output_issues,one_sentence
 class EvidenceTests(unittest.TestCase):
  def test_invented_measurement(self):
   self.assertTrue(output_issues('Analyze the workload.','The flamegraph analysis reveals that 42% of CPU time is spent in formatting.'))
@@ -20,7 +20,7 @@ class EvidenceTests(unittest.TestCase):
  def generator(self, engine):
   source=Path(__file__).resolve().parents[1]/'engine'/'kibble-bot.py'
   node=next(n for n in ast.parse(source.read_text(encoding="utf-8")).body if isinstance(n,ast.FunctionDef) and n.name=='generate')
-  ns=dict(re=re,job_block_reason=job_block_reason,output_issues=output_issues,SEED_HEX='TEST_SECRET',_load_env=lambda:{'BOT_ENGINES':'mlx,claude'},_prompt=lambda *a:'prompt',_finish_sentence=lambda x:x,ENGINES={'mlx':engine,'claude':lambda *a: (_ for _ in ()).throw(AssertionError('Claude disabled'))})
+  ns=dict(re=re,one_sentence=one_sentence,job_block_reason=job_block_reason,output_issues=output_issues,SEED_HEX='TEST_SECRET',_load_env=lambda:{'BOT_ENGINES':'mlx,claude'},_prompt=lambda *a:'prompt',_finish_sentence=lambda x:x,ENGINES={'mlx':engine,'claude':lambda *a: (_ for _ in ()).throw(AssertionError('Claude disabled'))})
   exec(compile(ast.Module(body=[node],type_ignores=[]),'generate','exec'),ns);return ns['generate']
  def test_repair_is_bounded_and_claude_off(self):
   calls=[]
@@ -31,4 +31,12 @@ class EvidenceTests(unittest.TestCase):
   answers=iter(['Use RFC 5928. '+('unsupported. '*12),'Check the certificate served by each backend and compare its fingerprint with the expected certificate. Record failures and retry after fixing the affected backend.'])
   answer,why=self.generator(lambda *a:(next(answers),'ok'))('review','TLS','Describe a certificate rotation check.')
   self.assertIsNotNone(answer);self.assertEqual(why,'mlx')
+ def test_two_bad_formats_are_held(self):
+  calls=[]
+  def engine(*args):calls.append(args);return 'One complete sentence here. Another complete sentence here.','ok'
+  answer,why=self.generator(engine)('explain','Short','Success: exactly one sentence.')
+  self.assertIsNone(answer);self.assertIn('one sentence requested',why);self.assertEqual(len(calls),2)
+ def test_short_valid_sentence_is_allowed(self):
+  answer,why=self.generator(lambda *a:('Ruby is a language whereas SMTP is an email protocol.','ok'))('explain','Short','Success: exactly one sentence.')
+  self.assertIsNotNone(answer)
 if __name__=='__main__':unittest.main()

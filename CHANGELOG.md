@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Quality evidence-v5: respect explicit word ranges and single-sentence requests instead of fixed padding; reject incorrect declared word counts. At most one repair before holding noncompliant output.
+- Decline long-form jobs beyond the conservative delivery budget, unsupported citation requests and a targeted storage/build category mismatch. Block a detected unsafe path-prefix containment recommendation. These checks do not prove factual correctness.
+- Remove unrelated generation exemplars and align the local self-check length instruction with the requested format. Production model weights remain unchanged.
+
+- Validator board reads use one attempt, a 15-second socket timeout and an 8 MiB body limit. Invalid JSON/schema is reported separately from an empty queue; retry after five minutes without emitting attestations. This does not guarantee a total wall-clock deadline or fix upstream availability.
+- Include the new reader in engine installation and updates. Production rollout pending.
+
 ## 1.0.10 — 2026-09-23
 
 - Validation: 25 tests pass on both OSes; macOS packaged startup passes. Windows package builds, but its startup test is blocked by the test laptop’s signing policy (WinError 4551, Code Integrity 3077). Windows startup validation remains incomplete; no signing certificate is available.

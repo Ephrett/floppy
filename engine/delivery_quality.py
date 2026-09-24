@@ -1,6 +1,6 @@
 """Deterministic checks for unsupported evidence, not a factual correctness judge."""
 import re
-VERSION = 'evidence-v4'
+VERSION = 'evidence-v5'
 REFERENCE = re.compile(r'\b(?:RFC\s*[-:]?\s*\d{3,5}|CVE-\d{4}-\d{4,})\b', re.I)
 NUMBER = re.compile(r'\b\d+(?:\.\d+)?\s*(?:%|percent\b|ms\b|seconds?\b|MB\b|GB\b)')
 MEASUREMENT = re.compile(r'\b(?:analysis (?:reveals|shows)|(?:profiling|flamegraph|benchmark|measurements?|results?) (?:shows?|reveals?|confirms?|indicates?)|(?:CPU )?time is spent|(?:reduces?|increases?|improves?|decreases?)\b.{0,100}\bby|(?:overhead|latency|CPU usage) will (?:drop|decrease|fall))\b', re.I)
@@ -8,6 +8,13 @@ HYPOTHETICAL = re.compile(r'\b(?:for example|hypothetical|illustrative|example t
 TEMPLATE = re.compile(r'^(?:completed work on .* successfully|coordination completed\. success criteria mapped|task completed successfully)', re.I)
 
 def job_block_reason(title, job):
+    bounds = word_bounds(job)
+    if bounds and bounds[0] > 350:
+        return 'requested length exceeds conservative delivery budget'
+    if re.search(r'(?:at least|minimum of) (?:three|3).{0,40}(?:credible )?(?:citations|sources)', job, re.I) and not re.search(r'https?://|provided sources|attached sources', job, re.I):
+        return 'verifiable citations require source material unavailable to worker'
+    if re.search(r'SSTable|(?:leveled|size-tiered|FIFO) compaction', job, re.I) and re.search(r'monorepo build|build triggered on every commit', job, re.I) and not re.search(r'RocksDB|LSM.tree|storage engine', job, re.I):
+        return 'storage compaction premise unsupported for build pipeline'
     # Reject specific mismatched deliverables, not every mention of these subjects.
     mismatches = [
         (r"compaction (?:algorithms|strategies) (?:in|for) jittered exponential backoff", 'storage compaction requested for retry algorithm'),
@@ -34,7 +41,9 @@ def job_block_reason(title, job):
     return None
 
 def output_issues(job, answer):
-    issues=[]
+    issues=format_issues(job, answer)
+    if re.search(r'allowed (?:directory|root)|path traversal|outside.{0,30}directory', job, re.I) and re.search(r'starts with|startswith|(?:directory|path) prefix', answer, re.I) and not re.search(r'not sufficient|insufficient|do not|never use|not use|instead of', answer, re.I):
+        issues.append('unsafe path containment: use path components and handle symlinks/races, not string prefix')
     refs={re.sub(r'\s+', '',s).lower() for s in REFERENCE.findall(job)}
     if any(re.sub(r'\s+', '',s).lower() not in refs for s in REFERENCE.findall(answer)):
         issues.append('reference not supplied or verified by a source tool')
@@ -44,3 +53,38 @@ def output_issues(job, answer):
             if any(n not in job for n in NUMBER.findall(sentence)):
                 issues.append('measured or guaranteed figures without supplied evidence');break
     return issues
+
+
+def word_bounds(job):
+    match = re.search(r"\b(\d+)\s*[–-]\s*(\d+)[ -]+words?\b", job, re.I)
+    if match:
+        low, high = map(int, match.groups())
+        if 0 < low <= high: return low, high
+    return None
+
+
+def one_sentence(job):
+    return bool(re.search(r"\b(?:exactly one|one|a single) sentence\b", job, re.I))
+
+
+def format_issues(job, answer):
+    issues = []
+    count = re.match(r"\s*Word count:\s*(\d+)\s*[.\n:]?\s*", answer, re.I)
+    body = answer[count.end():] if count else answer
+    words = len(body.split())
+    if count and int(count.group(1)) != words: issues.append('incorrect declared word count')
+    bounds = word_bounds(job)
+    if bounds and not bounds[0] <= words <= bounds[1]: issues.append('explicit word range not met')
+    if one_sentence(job):
+        # Common abbreviations are not sentence boundaries.
+        plain = re.sub(r"\b(?:e\.g|i\.e|Dr|Mr|Ms|vs)\.", 'abbrev', body)
+        if len(re.split(r"[.!?]+\s+(?=[A-Z])", plain.strip().rstrip('.!?'))) != 1:
+            issues.append('one sentence requested')
+    return issues
+
+
+def length_instruction(job):
+    bounds = word_bounds(job)
+    if bounds: return f'Write {bounds[0]}–{bounds[1]} words, counted by whitespace; count accurately if requested.'
+    if one_sentence(job): return 'Write exactly one sentence.'
+    return 'Be concise and complete; do not pad the answer to a target length.'

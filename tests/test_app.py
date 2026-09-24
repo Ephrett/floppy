@@ -12,6 +12,12 @@ class AppTests(unittest.TestCase):
  def test_engine_replaces_newer_stale_copy_but_keeps_identity(self):
   f=app.ENGINE/'delivery_quality.py';f.write_text('old');os.utime(f,(time.time()+10000,time.time()+10000));(app.ENGINE/'seed.hex').write_text('test-identity')
   app.ensure_engine_files();self.assertEqual(f.read_bytes(),(ROOT/'engine'/'delivery_quality.py').read_bytes());self.assertEqual((app.ENGINE/'seed.hex').read_text(),'test-identity')
+ def test_validator_reader_installed_and_updated(self):
+  target=app.ENGINE/'validator_board.py'
+  self.assertEqual(target.read_bytes(),(ROOT/'engine'/'validator_board.py').read_bytes())
+  target.write_text('stale reader')
+  app.ensure_engine_files()
+  self.assertEqual(target.read_bytes(),(ROOT/'engine'/'validator_board.py').read_bytes())
  def test_power_and_thermal_interaction(self):
   app.save_state({'options':{'ac_only':'1','temp_limit':'80'}});app.BG['machine']={'gpu_temp':82,'ac_power':False}
   self.assertEqual(app.pause_reason(),'thermal');app.BG['machine']['gpu_temp']=75;self.assertEqual(app.pause_reason(),'battery')

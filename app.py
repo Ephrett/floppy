@@ -30,7 +30,7 @@ PORT = int(os.environ.get("FLOPPY_PORT", "8788")); BIND = os.environ.get("FLOPPY
 SIMULATE = os.environ.get("FLOPPY_SIMULATE") == "1"
 PY = sys.executable; OLLAMA_PORT = os.environ.get("FLOPPY_OLLAMA_PORT", "11434"); OLLAMA_URL = f"http://127.0.0.1:{OLLAMA_PORT}"; BOARD = "https://flop-kibble.onrender.com"; TC = "https://technocore.chat"
 FORCE_INSTALL = os.environ.get("FLOPPY_FORCE_INSTALL") == "1"     # test « machine vierge » : ignore l'Ollama déjà présent
-ENGINE_FILES = ["kibble-bot.py", "sign.py", "llm.py", "tg.py", "checkin.py", "quality_metrics.py", "delivery_quality.py"]
+ENGINE_FILES = ["kibble-bot.py", "sign.py", "llm.py", "tg.py", "checkin.py", "quality_metrics.py", "delivery_quality.py", "validator_board.py"]
 TIER_NOTES = {"A": "GPU ≥ 22 Go ou Mac ≥ 30 Go : Gemma 4 26B, ~300 jobs/h de départ", "B": "GPU ≥ 11 Go ou Mac ≥ 20 Go : Gemma 4 12B, ~200 jobs/h",
               "C": "GPU ≥ 5,5 Go ou Mac ≥ 12 Go : Qwen 3.5 4B, ~150 jobs/h", "D": "sans GPU : Qwen 3.5 4B sur CPU, cadence réduite"}
 LOCK = threading.Lock(); TASK = {"name": None, "status": "idle", "log": [], "progress": 0}; WORKER = {"proc": None, "wanted": False, "since": None}

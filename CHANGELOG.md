@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Quality evidence-v6 adds explicit word maxima (at most/no more than/maximum and strict under/fewer than/less than), including combined range and single-sentence instructions. Seven regression tests added; 60 package tests pass on macOS. Source only: production stays evidence-v5 during its observation window; no weights or installer changed.
+
 - MLX adapters must be selected explicitly with MLX_ADAPTER_PATH. Requests include the adapters field; a missing or incomplete configured adapter fails instead of silently using the base. An empty setting keeps the base model. The server CLI adapter flag alone was insufficient with explicit model-path requests.
 - Adapter request coverage adds three tests (53 package tests pass on macOS). No trained weights or new installer are included in this source change.
 

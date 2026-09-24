@@ -1,6 +1,6 @@
 """Deterministic checks for unsupported evidence, not a factual correctness judge."""
 import re
-VERSION = 'evidence-v5'
+VERSION = 'evidence-v6'
 REFERENCE = re.compile(r'\b(?:RFC\s*[-:]?\s*\d{3,5}|CVE-\d{4}-\d{4,})\b', re.I)
 NUMBER = re.compile(r'\b\d+(?:\.\d+)?\s*(?:%|percent\b|ms\b|seconds?\b|MB\b|GB\b)')
 MEASUREMENT = re.compile(r'\b(?:analysis (?:reveals|shows)|(?:profiling|flamegraph|benchmark|measurements?|results?) (?:shows?|reveals?|confirms?|indicates?)|(?:CPU )?time is spent|(?:reduces?|increases?|improves?|decreases?)\b.{0,100}\bby|(?:overhead|latency|CPU usage) will (?:drop|decrease|fall))\b', re.I)
@@ -63,6 +63,22 @@ def word_bounds(job):
     return None
 
 
+
+def word_maximum(job):
+    """Explicit English word caps; strict 'under N' means at most N-1.
+
+    This parses task text, not arbitrary semantic instructions or quoted examples.
+    Counts use the same whitespace convention as format_issues.
+    """
+    patterns = [
+        (r"\b(?:at most|no more than|maximum(?: of)?)\s+(\d+)\s+words?\b", 0),
+        (r"\b(?:under|fewer than|less than)\s+(\d+)\s+words?\b", -1),
+    ]
+    limits = [int(m.group(1)) + offset for pattern, offset in patterns
+              for m in re.finditer(pattern, job, re.I)]
+    return min(limits) if limits else None
+
+
 def one_sentence(job):
     return bool(re.search(r"\b(?:exactly one|one|a single) sentence\b", job, re.I))
 
@@ -75,6 +91,9 @@ def format_issues(job, answer):
     if count and int(count.group(1)) != words: issues.append('incorrect declared word count')
     bounds = word_bounds(job)
     if bounds and not bounds[0] <= words <= bounds[1]: issues.append('explicit word range not met')
+    maximum = word_maximum(job)
+    if maximum is not None and words > maximum:
+        issues.append('explicit word maximum exceeded')
     if one_sentence(job):
         # Common abbreviations are not sentence boundaries.
         plain = re.sub(r"\b(?:e\.g|i\.e|Dr|Mr|Ms|vs)\.", 'abbrev', body)
@@ -84,7 +103,13 @@ def format_issues(job, answer):
 
 
 def length_instruction(job):
+    instructions = []
     bounds = word_bounds(job)
-    if bounds: return f'Write {bounds[0]}–{bounds[1]} words, counted by whitespace; count accurately if requested.'
-    if one_sentence(job): return 'Write exactly one sentence.'
-    return 'Be concise and complete; do not pad the answer to a target length.'
+    maximum = word_maximum(job)
+    if bounds:
+        instructions.append(f'Write {bounds[0]}–{bounds[1]} words, counted by whitespace; count accurately if requested.')
+    if maximum is not None:
+        instructions.append(f'Use at most {maximum} words, counted by whitespace.')
+    if one_sentence(job):
+        instructions.append('Write exactly one sentence.')
+    return ' '.join(instructions) or 'Be concise and complete; do not pad the answer to a target length.'

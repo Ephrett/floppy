@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- MLX adapters must be selected explicitly with MLX_ADAPTER_PATH. Requests include the adapters field; a missing or incomplete configured adapter fails instead of silently using the base. An empty setting keeps the base model. The server CLI adapter flag alone was insufficient with explicit model-path requests.
+- Adapter request coverage adds three tests (53 package tests pass on macOS). No trained weights or new installer are included in this source change.
+
 - Quality evidence-v5: respect explicit word ranges and single-sentence requests instead of fixed padding; reject incorrect declared word counts. At most one repair before holding noncompliant output.
 - Decline long-form jobs beyond the conservative delivery budget, unsupported citation requests and a targeted storage/build category mismatch. Block a detected unsafe path-prefix containment recommendation. These checks do not prove factual correctness.
 - Remove unrelated generation exemplars and align the local self-check length instruction with the requested format. Production model weights remain unchanged.

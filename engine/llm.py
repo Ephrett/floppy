@@ -113,10 +113,18 @@ def gemma(prompt: str, images: list[str] | None = None, num_predict: int = 500, 
 
 
 def mlx_generate(prompt: str, system: str | None = None, max_tokens: int = 700, temperature: float = 0.35, timeout: int = 300) -> str:
-    """Serveur mlx_lm local (MLX_URL, port 11435) : Gemma 4 affiné par distillation (adaptateur LoRA FLOPPY). API compatible OpenAI."""
+    """Serveur mlx_lm local (MLX_URL, port 11435) : Adaptateur seulement si MLX_ADAPTER_PATH est configuré. API compatible OpenAI."""
     e = env(); msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
     body = {"model": e.get("MLX_MODEL", "floppy"), "messages": msgs, "max_tokens": max_tokens, "temperature": temperature,
             "top_p": 0.95, "repetition_penalty": 1.05, "chat_template_kwargs": {"enable_thinking": False}}   # sans réflexion cachée, mêmes réglages qu'Ollama
+    # MLX server 0.31.3 does not inherit the CLI adapter for an explicit model path.
+    # Empty configuration intentionally requests the base model; never claim a LoRA is active implicitly.
+    adapter = e.get("MLX_ADAPTER_PATH", "").strip()
+    if adapter:
+        adapter_dir = Path(adapter).expanduser()
+        if not (adapter_dir / "adapters.safetensors").is_file() or not (adapter_dir / "adapter_config.json").is_file():
+            raise RuntimeError("Configured MLX adapter is incomplete; refusing silent base fallback")
+        body["adapters"] = str(adapter_dir.resolve())
     req = urllib.request.Request(f"{e.get('MLX_URL', 'http://127.0.0.1:11435')}/v1/chat/completions", data=json.dumps(body).encode(),
                                  headers={"content-type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as r: d = json.load(r)

@@ -1,4 +1,6 @@
 """Boot the packaged app with an empty, isolated profile before distributing it."""
+import ast
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,6 +11,19 @@ import sys
 import tempfile
 import time
 from urllib.request import urlopen
+
+
+def verify_engine(profile, source):
+    """Reject missing or outdated installed modules, not merely a bootable UI."""
+    tree = ast.parse((source / "app.py").read_text(encoding="utf-8"))
+    names = next(ast.literal_eval(node.value) for node in tree.body
+                 if isinstance(node, ast.Assign)
+                 and any(isinstance(t, ast.Name) and t.id == "ENGINE_FILES" for t in node.targets))
+    for name in names + ["probe.py"]:
+        expected = (source / "engine" / name).read_bytes()
+        installed = (profile / "engine" / name).read_bytes()
+        if hashlib.sha256(installed).digest() != hashlib.sha256(expected).digest():
+            raise AssertionError("Installed engine differs from candidate: " + name)
 
 
 def main():
@@ -38,8 +53,7 @@ def main():
             assert state["version"] == expected, state["version"]
             assert Path(state["home"]).resolve() == Path(folder).resolve()
             assert not state["worker"]["running"]
-            for name in ("quality_metrics.py", "delivery_quality.py", "kibble-bot.py"):
-                assert (Path(folder) / "engine" / name).is_file(), name
+            verify_engine(Path(folder), Path.cwd())
             with urlopen(f"http://127.0.0.1:{port}/api/stats", timeout=10) as response:
                 stats = json.load(response)
                 assert stats["worker_status"] == "ready", stats["worker_status"]

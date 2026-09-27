@@ -1,10 +1,10 @@
 # Changelog
 
-## 1.0.11 — release candidate
+## 1.0.11 — 2026-09-27 (private beta)
 
 - Mac and Windows frozen apps rebuilt and startup-checked in empty simulation profiles: version, API, UI and installed engine hashes match. 63 tests pass on each OS. DMG and Inno Setup installer built locally; native installation into existing user profiles has not been tested. Builds remain unsigned. Windows startup succeeded without changing security policy.
 
-- Frozen-app smoke checks now compare every installed engine module (including validator_board.py and probe.py) against the candidate source by SHA-256. Missing or outdated payloads fail even if the UI boots. Three regression tests added; 63 package tests pass on macOS. No new installer or release published.
+- Frozen-app smoke checks now compare every installed engine module (including validator_board.py and probe.py) against the candidate source by SHA-256. Missing or outdated payloads fail even if the UI boots. Three regression tests added; 63 package tests pass on macOS. Included in the 1.0.11 beta installers.
 
 - Quality evidence-v6 adds explicit word maxima (at most/no more than/maximum and strict under/fewer than/less than), including combined range and single-sentence instructions. Seven regression tests added; 60 package tests pass on macOS. Mac and laptop workers already use evidence-v6; this candidate brings the packaged engine up to date without changing model weights.
 

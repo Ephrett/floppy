@@ -9,12 +9,9 @@ with a key created locally. One Play button, five steps, nothing phones home.
 
 ## Status
 
-Source candidate: **1.0.11**, engine evidence-v6. Both frozen apps pass empty-profile startup checks; 63 tests pass on each OS. Candidate installers are built locally and remain unsigned. Published downloads below remain **1.0.10** until a new release is approved.
+Private beta **1.0.11**, engine evidence-v6. Both frozen apps passed empty-profile startup checks; 63 tests pass on each OS. Builds remain **unsigned**. macOS and Windows may warn or block them according to local security policy. Windows startup succeeded for this version without changing security policy; native installation over existing profiles has not been tested.
 
-Private beta, published version 1.0.10. Builds are **not signed yet**: macOS says "unidentified developer" (right-click → Open), Windows shows SmartScreen
-("More info" → "Run anyway", where policy permits). Application Control can block unsigned builds entirely: the 1.0.10 Windows startup check was blocked by code-integrity policy on the test laptop. No security policy was disabled; this Windows build is not startup-validated. You can always build it yourself from this repository (see below), which is the point of publishing the code.
-
-Downloads: [macOS installer](https://github.com/Ephrett/floppy/releases/download/v1.0.10/FLOPPY-1.0.10.dmg) · [Windows installer](https://github.com/Ephrett/floppy/releases/download/v1.0.10/FLOPPY-Setup-1.0.10.exe) · [Release notes and checksums](https://github.com/Ephrett/floppy/releases/tag/v1.0.10).
+Downloads: [macOS installer](https://github.com/Ephrett/floppy/releases/download/v1.0.11/FLOPPY-1.0.11.dmg) · [Windows installer](https://github.com/Ephrett/floppy/releases/download/v1.0.11/FLOPPY-Setup-1.0.11.exe) · [Release notes and checksums](https://github.com/Ephrett/floppy/releases/tag/v1.0.11).
 
 ## What it does
 
